@@ -1,7 +1,30 @@
 from rest_framework import serializers
+from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
+
+
+class UserLoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only = True)
+    
+    def validate(self, attrs):
+        username = attrs.get('username')
+        password = attrs.get('password')
+
+        if username and password:
+            user = authenticate(username = username, password = password)
+            if not user:
+                raise serializers.ValidationError('Invalid Credentials')
+            if not user.is_active:
+                raise serializers.ValidationError('User account is disabled')
+            attrs['user'] = user
+        else:
+            raise serializers.ValidationError('Username and password not included!')
+        
+        return attrs
+
 
 class UserRegistrationSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only = True, validators = [validate_password])
@@ -26,6 +49,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
         validated_data['password'] = make_password(validated_data['password'])
         user = User.objects.create(**validated_data)
         return user
+    
     
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
