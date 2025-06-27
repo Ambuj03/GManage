@@ -4,6 +4,8 @@ from django.contrib.auth.models import User
 from django.contrib.auth.hashers import make_password
 from django.contrib.auth.password_validation import validate_password
 
+from .models import GoogleOAuthToken
+
 
 class UserLoginSerializer(serializers.Serializer):
     username = serializers.CharField()
@@ -56,3 +58,20 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ('id', 'username', 'email', 'date_joined')
         read_only_fields = ('id', 'date_joined')
+
+
+'''GoogleOAuthSerializer - OAuth Token Display
+This serializer handles displaying Google OAuth token information to users.'''
+class GoogleOAuthSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = GoogleOAuthToken
+        fields = ('created_at', 'updated_at', 'scopes')
+        read_only_fields = ('created_at', 'updated_at', 'scopes')
+
+
+'''GoogleAuthURLSerializer - OAuth Initiation
+This serializer handles starting the Google OAuth flow.'''
+
+class GoogleAuthURLSerializer(serializers.Serializer):
+    auth_url = serializers.URLField()
+    state = serializers.CharField()
