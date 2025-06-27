@@ -7,7 +7,7 @@ from django.utils import timezone
 class GoogleOAuthToken(models.Model):
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='google_token')
     access_token = models.TextField()
-    refresh_token = models.TextField()
+    refresh_token = models.TextField(null=True, blank=True)
     token_uri = models.URLField(default = 'https://oauth2.googleapis.com/token')
     client_id = models.CharField(max_length=255)
     client_secret = models.CharField(max_length=255)
