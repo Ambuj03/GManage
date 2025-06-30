@@ -13,13 +13,17 @@ from rest_framework_simplejwt.exceptions import TokenError
 # Importing OAuth related things
 from django.contrib.auth.models import User
 from django.shortcuts import redirect
-from .utils import generate_auth_url, exchange_code_for_tokens
+from .utils import generate_auth_url, exchange_code_for_tokens, create_gmail_service, revoke_user_tokens
 from .models import GoogleOAuthToken
 from .serializers import GoogleAuthURLSerializer, GoogleOAuthSerializer
 
 from django.conf import settings
 import importlib
 from datetime import timedelta, datetime
+
+# Adding logger for enchanced debugging
+import logging
+logger = logging.getLogger(__name__)
 
 class UserLoginView(APIView):
     permission_classes = [AllowAny]
@@ -95,60 +99,108 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 class GoogleAuthURLView(APIView):
     permission_classes = [IsAuthenticated]
 
-    """Generate Google OAuth2 authorization URL"""
     def get(self, request):
+        """Generate Google OAuth2 authorization URL with enhanced error handling"""
+        try:
+            auth_url, state = generate_auth_url(request.user.id)
 
-        # import gmail_purge_backend.settings
-        # importlib.reload(gmail_purge_backend.settings)
+            if not auth_url:
+                logger.error(f"Failed to generate auth URL for user {request.user.username}")
+                return Response({
+                    'error': 'Failed to generate authorization URL',
+                    'success': False
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            
+            logger.info(f"Generated auth URL for user {request.user.username}")
+            return Response({
+                'auth_url': auth_url,
+                'state': state,
+                'message': 'Visit the auth_url to authorize Gmail access',
+                'success': True
+            })
         
-        # # Test what's actually loaded
-        # from django.conf import settings
-        # print("Current CLIENT_ID:", settings.GOOGLE_OAUTH2_CLIENT_ID)
+        except Exception as e:
+            logger.error(f"Auth URL generation error for user {request.user.username}: {e}")
+            return Response({
+                'error': f'Authorization setup failed: {str(e)}',
+                'success': False
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        auth_url, state = generate_auth_url(request.user.id)
-
-        serializer = GoogleAuthURLSerializer({
-            'auth_url' : auth_url,
-            'state' : state
-        })
-
-        return Response(serializer.data)
-    
 
 
 class GoogleOAuthCallbackView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
+        """Handle Google OAuth2 callback with enhanced validation and Gmail testing"""
         code = request.GET.get('code')
         state = request.GET.get('state')
         error = request.GET.get('error')
 
         if error:
+            logger.warning(f"OAuth authorization denied: {error}")
             return Response({
-                'error': f'OAuth error: {error}'
+                'error': f'OAuth authorization denied: {error}',
+                'success': False
             }, status=status.HTTP_400_BAD_REQUEST)
         
         if not state or not code:
+            logger.warning("OAuth callback missing required parameters")
             return Response({
-                'error': 'Missing authorization code or state'
+                'error': 'Missing authorization code or state parameter',
+                'success': False
             }, status=status.HTTP_400_BAD_REQUEST)
         
         try:
-            # Get user from state
-            user = User.objects.get(id=int(state))
+            # Validate user from state
+            try:
+                user = User.objects.get(id=int(state))
+            except (User.DoesNotExist, ValueError):
+                logger.error(f"Invalid state parameter: {state}")
+                return Response({
+                    'error': 'Invalid authorization state',
+                    'success': False
+                }, status=status.HTTP_400_BAD_REQUEST)
+        
+            # Manual token exchange with enhanced error handling
+            try:
+                token_response = exchange_code_for_tokens(code)
+            except Exception as e:
+                logger.error(f"Token exchange failed for user {user.username}: {e}")
+                return Response({
+                    'error': f'Token exchange failed: {str(e)}',
+                    'success': False
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-            # Manual token exchange
-            token_response = exchange_code_for_tokens(code)
+            # Validate required tokens
+            if 'access_token' not in token_response:
+                logger.error(f"No access token received for user {user.username}")
+                return Response({
+                    'error': 'Invalid token response from Google',
+                    'success': False
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
             # Get granted scopes from URL parameter
             granted_scopes_param = request.GET.get('scope', '')
             granted_scopes = granted_scopes_param.split() if granted_scopes_param else []
 
-            # Calculate expiry
+            # Validate essential scopes
+            required_scopes = ['https://www.googleapis.com/auth/gmail.modify']
+            missing_scopes = [scope for scope in required_scopes if scope not in granted_scopes]
+            
+            if missing_scopes:
+                logger.warning(f"Missing required scopes for user {user.username}: {missing_scopes}")
+                return Response({
+                    'error': f'Required Gmail permissions not granted: {missing_scopes}',
+                    'success': False,
+                    'granted_scopes': granted_scopes
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Calculate expiry with timezone awareness
             expiry = None
             if 'expires_in' in token_response:
-                expiry = datetime.utcnow() + timedelta(seconds=token_response['expires_in'])
+                from django.utils import timezone
+                expiry = timezone.now() + timedelta(seconds=token_response['expires_in'])
 
             # Save tokens to database
             token, created = GoogleOAuthToken.objects.update_or_create(
@@ -164,19 +216,41 @@ class GoogleOAuthCallbackView(APIView):
                 }
             )
 
+            # Test Gmail API connection
+            try:
+                gmail_service = create_gmail_service(user)
+                if not gmail_service:
+                    logger.error(f"Gmail service creation failed for user {user.username}")
+                    return Response({
+                        'error': 'Failed to connect to Gmail API. Please try again.',
+                        'success': False
+                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+                # Test with a simple API call
+                profile = gmail_service.users().getProfile(userId='me').execute()
+                gmail_address = profile.get('emailAddress', 'Unknown')
+                
+            except Exception as e:
+                logger.error(f"Gmail API test failed for user {user.username}: {e}")
+                # Don't fail the whole process, just warn
+                gmail_address = 'Unable to verify'
+
+            logger.info(f"OAuth setup successful for user {user.username}, Gmail: {gmail_address}")
+            
             return Response({
-                'message': 'Google OAuth setup successful',
+                'message': 'Gmail authorization successful',
+                'success': True,
                 'token_created': created,
-                'granted_scopes': granted_scopes
+                'granted_scopes': granted_scopes,
+                'gmail_address': gmail_address,
+                'user_email': user.email
             })
         
-        except User.DoesNotExist:
-            return Response({
-                'error': 'Invalid user state'
-            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
+            logger.error(f"OAuth callback error for user state {state}: {e}")
             return Response({
-                'error': f'OAuth callback error: {str(e)}'
+                'error': f'Authorization failed: {str(e)}',
+                'success': False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
@@ -184,20 +258,78 @@ class GoogleOAuthCallbackView(APIView):
 class GoogleTokenStatusView(APIView):
     permission_classes = [IsAuthenticated]
 
-    """Check Google OAuth token status"""
     def get(self, request):
+        """Check Google OAuth token status with Gmail connectivity test"""
         try:
-            token = GoogleOAuthToken.objects.get(user = request.user)
-            serializer = GoogleOAuthSerializer(token)
+            token = GoogleOAuthToken.objects.get(user=request.user)
+            
+            # Test Gmail connectivity
+            try:
+                gmail_service = create_gmail_service(request.user)
+                is_connected = gmail_service is not None
+                
+                if is_connected:
+                    # Get basic Gmail info
+                    profile = gmail_service.users().getProfile(userId='me').execute()
+                    gmail_info = {
+                        'email_address': profile.get('emailAddress'),
+                        'messages_total': profile.get('messagesTotal', 0),
+                        'threads_total': profile.get('threadsTotal', 0)
+                    }
+                else:
+                    gmail_info = None
+                    
+            except Exception as e:
+                logger.warning(f"Gmail connectivity test failed for user {request.user.username}: {e}")
+                is_connected = False
+                gmail_info = None
 
             return Response({
-                'has_token' : True,
-                'is_expired' : token.is_expired(),
-                'token_info' : serializer.data  
+                'has_token': True,
+                'is_expired': token.is_expired(),
+                'is_connected': is_connected,
+                'scopes': token.scopes,
+                'created_at': token.created_at,
+                'updated_at': token.updated_at,
+                'gmail_info': gmail_info
             })
+            
         except GoogleOAuthToken.DoesNotExist:
             return Response({
                 'has_token': False,
                 'is_expired': None,
-                'token_info': None
+                'is_connected': False,
+                'scopes': [],
+                'message': 'No Gmail authorization found. Please authorize first.',
+                'gmail_info': None
             })
+
+
+class GoogleTokenRevokeView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request):
+        """Revoke Google OAuth tokens with enhanced error handling"""
+        try:
+            success = revoke_user_tokens(request.user)
+            
+            if success:
+                logger.info(f"OAuth tokens revoked for user {request.user.username}")
+                return Response({
+                    'message': 'Gmail authorization revoked successfully',
+                    'success': True
+                })
+            else:
+                logger.error(f"Token revocation failed for user {request.user.username}")
+                return Response({
+                    'error': 'Failed to revoke authorization completely',
+                    'success': False,
+                    'message': 'Local tokens removed but Google revocation may have failed'
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                
+        except Exception as e:
+            logger.error(f"Token revocation error for user {request.user.username}: {e}")
+            return Response({
+                'error': f'Revocation failed: {str(e)}',
+                'success': False
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
