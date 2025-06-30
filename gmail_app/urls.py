@@ -2,6 +2,7 @@ from django.urls import path
 from .views import ProfileView, UserRegistrationView, UserLoginView, UserLogoutView
 from .views import GoogleAuthURLView, GoogleOAuthCallbackView, GoogleTokenStatusView, GoogleTokenRevokeView, GmailConnectivityTestView
 from rest_framework_simplejwt.views import TokenRefreshView
+from .views import GmailEmailListView, GmailEmailMetadataView, GmailSearchView, GmailLabelsView
 
 urlpatterns = [
     # JWT realted URLs
@@ -19,5 +20,11 @@ urlpatterns = [
 
     #Gmail connectivity test views
     path('gmail/connectivity/', GmailConnectivityTestView.as_view(), name='gmail_connectivity'),
+
+    #Gmail operations related views
+    path('gmail/emails/', GmailEmailListView.as_view(), name='gmail_emails'),
+    path('gmail/emails/metadata/', GmailEmailMetadataView.as_view(), name='gmail_email_metadata'),
+    path('gmail/search/', GmailSearchView.as_view(), name='gmail_search'),
+    path('gmail/labels/', GmailLabelsView.as_view(), name='gmail_labels'),
 
 ]

@@ -21,6 +21,8 @@ from django.conf import settings
 import importlib
 from datetime import timedelta, datetime
 
+from .gmail_operations import GmailOperations, build_search_query
+
 # Adding logger for enchanced debugging
 import logging
 logger = logging.getLogger(__name__)
@@ -398,4 +400,185 @@ class GmailConnectivityTestView(APIView):
                 'connected': False,
                 'error': str(e),
                 'message': 'Connection refresh failed'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+class GmailEmailListView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """List emails with optional filtering and pagination"""
+        try:
+            # Get query parameters
+            query = request.GET.get('q', '')
+            max_results = int(request.GET.get('max_results', 50))
+            page_token = request.GET.get('page_token')
+            label_ids = request.GET.getlist('label_ids')
+            
+            # Limit max results
+            max_results = min(max_results, 500)
+            
+            gmail_ops = GmailOperations(request.user)
+            result = gmail_ops.list_emails(
+                query=query,
+                max_results=max_results,
+                page_token=page_token,
+                label_ids=label_ids if label_ids else None
+            )
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result,
+                'pagination': {
+                    'current_count': len(result['messages']),
+                    'next_page_token': result.get('nextPageToken'),
+                    'total_estimate': result.get('resultSizeEstimate', 0)
+                }
+            })
+            
+        except ValueError as e:
+            return Response({
+                'error': 'Invalid parameter format',
+                'details': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Email list error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Failed to list emails',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class GmailEmailMetadataView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Get metadata for specific emails"""
+        try:
+            message_ids = request.data.get('message_ids', [])
+            
+            if not message_ids:
+                return Response({
+                    'error': 'message_ids required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if len(message_ids) > 1000:
+                return Response({
+                    'error': 'Too many message IDs (max 1000)'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            gmail_ops = GmailOperations(request.user)
+            result = gmail_ops.get_email_metadata(message_ids)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result,
+                'count': len(result['emails'])
+            })
+            
+        except Exception as e:
+            logger.error(f"Email metadata error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Failed to get email metadata',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class GmailSearchView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Search emails using query string"""
+        try:
+            query = request.GET.get('q', '')
+            max_results = int(request.GET.get('max_results', 100))
+            
+            if not query:
+                return Response({
+                    'error': 'Search query (q) parameter required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            gmail_ops = GmailOperations(request.user)
+            result = gmail_ops.search_emails(query, max_results)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result
+            })
+            
+        except ValueError as e:
+            return Response({
+                'error': 'Invalid parameter format',
+                'details': str(e)
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except Exception as e:
+            logger.error(f"Email search error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Search failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Advanced search using filter parameters"""
+        try:
+            filters = request.data
+            
+            # Build query from filters
+            query = build_search_query(filters)
+            max_results = filters.get('max_results', 100)
+            
+            if not query:
+                return Response({
+                    'error': 'No valid search filters provided'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            gmail_ops = GmailOperations(request.user)
+            result = gmail_ops.search_emails(query, max_results)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result,
+                'filters_used': filters,
+                'generated_query': query
+            })
+            
+        except Exception as e:
+            logger.error(f"Advanced search error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Advanced search failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class GmailLabelsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get all Gmail labels"""
+        try:
+            gmail_ops = GmailOperations(request.user)
+            result = gmail_ops.get_labels()
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"Labels error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Failed to get labels',
+                'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
