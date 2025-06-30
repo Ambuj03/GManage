@@ -1,6 +1,6 @@
 from django.urls import path
 from .views import ProfileView, UserRegistrationView, UserLoginView, UserLogoutView
-from .views import GoogleAuthURLView, GoogleOAuthCallbackView, GoogleTokenStatusView, GoogleTokenRevokeView
+from .views import GoogleAuthURLView, GoogleOAuthCallbackView, GoogleTokenStatusView, GoogleTokenRevokeView, GmailConnectivityTestView
 from rest_framework_simplejwt.views import TokenRefreshView
 
 urlpatterns = [
@@ -17,5 +17,7 @@ urlpatterns = [
     path('auth/google/status/', GoogleTokenStatusView.as_view(), name='google_token_status'),
     path('auth/google/revoke/', GoogleTokenRevokeView.as_view(), name='google_token_revoke'),
 
+    #Gmail connectivity test views
+    path('gmail/connectivity/', GmailConnectivityTestView.as_view(), name='gmail_connectivity'),
 
 ]

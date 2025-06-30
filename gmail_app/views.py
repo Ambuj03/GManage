@@ -333,3 +333,69 @@ class GoogleTokenRevokeView(APIView):
                 'error': f'Revocation failed: {str(e)}',
                 'success': False
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# Gmail Connectivity Test Views
+from .gmail_utils import test_gmail_connectivity, GmailServiceManager
+
+class GmailConnectivityTestView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Test Gmail API connectivity and return detailed status"""
+        try:
+            connectivity_result = test_gmail_connectivity(request.user)
+            
+            if connectivity_result['connected']:
+                return Response({
+                    'status': 'success',
+                    'connected': True,
+                    'gmail_profile': connectivity_result['profile'],
+                    'message': 'Gmail API connection successful'
+                })
+            else:
+                return Response({
+                    'status': 'error',
+                    'connected': False,
+                    'error': connectivity_result['error'],
+                    'message': 'Gmail API connection failed'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            logger.error(f"Gmail connectivity test error for user {request.user.username}: {e}")
+            return Response({
+                'status': 'error',
+                'connected': False,
+                'error': str(e),
+                'message': 'Connectivity test failed'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Force refresh Gmail connection"""
+        try:
+            manager = GmailServiceManager(request.user)
+            service = manager.get_service(force_refresh=True)
+            
+            if service:
+                connectivity_result = test_gmail_connectivity(request.user)
+                return Response({
+                    'status': 'success',
+                    'connected': True,
+                    'gmail_profile': connectivity_result['profile'],
+                    'message': 'Gmail connection refreshed successfully'
+                })
+            else:
+                return Response({
+                    'status': 'error',
+                    'connected': False,
+                    'error': manager.get_last_error(),
+                    'message': 'Failed to refresh Gmail connection'
+                }, status=status.HTTP_400_BAD_REQUEST)
+                
+        except Exception as e:
+            return Response({
+                'status': 'error',
+                'connected': False,
+                'error': str(e),
+                'message': 'Connection refresh failed'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
