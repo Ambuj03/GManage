@@ -34,4 +34,9 @@ urlpatterns = [
     path('gmail/emails/bulk-delete/', views.BulkEmailDeleteView.as_view(), name='bulk_email_delete'),
     path('gmail/emails/bulk-recover/', views.BulkEmailRecoverView.as_view(), name='bulk_email_recover'),
     path('tasks/<str:task_id>/', views.TaskStatusView.as_view(), name='task_status'),
+
+    #Deletion?recovery bt query for testing
+    path('gmail/delete-by-query/', views.DeleteByQueryView.as_view(), name='query_email_delete'),
+    path('gmail/recover-by-query/', views.RecoverByQueryView.as_view(), name='query_email_recover'),
+
 ]

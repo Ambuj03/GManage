@@ -5,6 +5,7 @@ from django.contrib.auth.models import User
 from googleapiclient.errors import HttpError
 from .gmail_utils import GmailServiceManager, handle_gmail_api_error, retry_gmail_operation
 from .models import GoogleOAuthToken
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -106,159 +107,330 @@ class EmailDeletionManager:
         except Exception as e:
             logger.error(f"Unexpected recover error for user {self.user.username}: {e}")
             return {'error': {'message': str(e), 'type': 'unknown'}}
+        
+        # Add this method to EmailDeletionManager:
+
+    def fast_batch_delete_emails(self, message_ids, permanent=False, batch_size=1000):
+        """Fast deletion using batchModify (PhotoPurge style)"""
+        try:
+            service = self.service_manager.get_service()
+            if not service:
+                return {'error': 'Gmail service not available'}
+            
+            total_successful = 0
+            total_failed = 0
+            all_errors = []
+            
+            # Process in batches of 1000 (batchModify limit)
+            for i in range(0, len(message_ids), batch_size):
+                batch_ids = message_ids[i:i + batch_size]
+                
+                try:
+                    if permanent:
+                        # For permanent deletion, use batchDelete if available
+                        # or fall back to individual delete calls
+                        for msg_id in batch_ids:
+                            service.users().messages().delete(
+                                userId='me',
+                                id=msg_id   
+                            ).execute()
+                            time.sleep(0.01)  # Minimal delay
+                    else:
+                        # Fast trash using batchModify
+                        service.users().messages().batchModify(
+                            userId='me',
+                            body={
+                                'ids': batch_ids,
+                                'addLabelIds': ['TRASH'],
+                                'removeLabelIds': ['INBOX']
+                            }
+                        ).execute()
+                    
+                    total_successful += len(batch_ids)
+                    logger.info(f"Fast batch {i//batch_size + 1} completed: {len(batch_ids)} emails")
+                    
+                except HttpError as e:
+                    logger.error(f"Fast batch error: {e}")
+                    total_failed += len(batch_ids)
+                    all_errors.append({
+                        'batch': i//batch_size + 1,
+                        'error': str(e),
+                        'message_count': len(batch_ids)
+                    })
+                    
+                    # Rate limit handling
+                    if e.resp.status == 429:
+                        time.sleep(2.0)
+                
+                # Small delay between batches
+                time.sleep(0.1)
+            
+            return {
+                'status': 'completed',
+                'total': len(message_ids),
+                'successful': total_successful,
+                'failed': total_failed,
+                'errors': all_errors,
+                'action': 'permanently_deleted' if permanent else 'moved_to_trash'
+            }
+            
+        except Exception as e:
+            logger.error(f"Fast batch delete error: {e}")
+            return {'error': {'message': str(e), 'type': 'fast_batch_error'}}
+        
+
+    def fast_batch_recover_emails(self, message_ids, batch_size=1000):
+        """Fast recovery using batchModify (remove TRASH label)"""
+        try:
+            service = self.service_manager.get_service()
+            if not service:
+                return {'error': 'Gmail service not available'}
+            
+            total_successful = 0
+            total_failed = 0
+            all_errors = []
+            
+            # Process in batches of 1000 (batchModify limit)
+            for i in range(0, len(message_ids), batch_size):
+                batch_ids = message_ids[i:i + batch_size]
+                
+                try:
+                    # Fast recovery using batchModify
+                    service.users().messages().batchModify(
+                        userId='me',
+                        body={
+                            'ids': batch_ids,
+                            'removeLabelIds': ['TRASH'],
+                            'addLabelIds': ['INBOX']  # Move back to inbox
+                        }
+                    ).execute()
+                    
+                    total_successful += len(batch_ids)
+                    logger.info(f"Fast recovery batch {i//batch_size + 1} completed: {len(batch_ids)} emails")
+                    
+                except HttpError as e:
+                    logger.error(f"Fast recovery batch error: {e}")
+                    total_failed += len(batch_ids)
+                    all_errors.append({
+                        'batch': i//batch_size + 1,
+                        'error': str(e),
+                        'message_count': len(batch_ids)
+                    })
+                    
+                    # Rate limit handling
+                    if e.resp.status == 429:
+                        time.sleep(2.0)
+                
+                # Small delay between batches
+                time.sleep(0.1)
+            
+            return {
+                'status': 'completed',
+                'total': len(message_ids),
+                'successful': total_successful,
+                'failed': total_failed,
+                'errors': all_errors,
+                'action': 'recovered_from_trash'
+            }
+            
+        except Exception as e:
+            logger.error(f"Fast batch recover error: {e}")
+            return {'error': {'message': str(e), 'type': 'fast_recovery_error'}}
+        
+
+
+    def delete_by_query(self, search_query, max_emails=5000, permanent=False):
+        """Delete emails by search query instead of individual IDs"""
+        try:
+            service = self.service_manager.get_service()
+            if not service:
+                return {'error': 'Gmail service not available'}
+            
+            # Step 1: Search for emails matching query
+            all_message_ids = []
+            page_token = None
+            
+            while len(all_message_ids) < max_emails:
+                try:
+                    # Search emails
+                    result = service.users().messages().list(
+                        userId='me',
+                        q=search_query,
+                        maxResults=min(500, max_emails - len(all_message_ids)),
+                        pageToken=page_token
+                    ).execute()
+                    
+                    messages = result.get('messages', [])
+                    if not messages:
+                        break
+                    
+                    # Extract message IDs
+                    message_ids = [msg['id'] for msg in messages]
+                    all_message_ids.extend(message_ids)
+                    
+                    page_token = result.get('nextPageToken')
+                    if not page_token:
+                        break
+                        
+                except Exception as e:
+                    logger.error(f"Search error: {e}")
+                    break
+            
+            logger.info(f"Found {len(all_message_ids)} emails for query: {search_query}")
+            
+            # Step 2: Delete using fast batch method
+            if all_message_ids:
+                return self.fast_batch_delete_emails(all_message_ids, permanent)
+            else:
+                return {
+                    'status': 'completed',
+                    'total': 0,
+                    'successful': 0,
+                    'failed': 0,
+                    'message': 'No emails found matching the query'
+                }
+                
+        except Exception as e:
+            logger.error(f"Delete by query error: {e}")
+            return {'error': {'message': str(e), 'type': 'query_delete_error'}}
+        
+
+
+    def recover_by_query(self, search_query, max_emails=5000):
+        """Recover emails from trash by search query"""
+        try:
+            service = self.service_manager.get_service()
+            if not service:
+                return {'error': 'Gmail service not available'}
+            
+            # Search in trash
+            trash_query = f"in:trash {search_query}"
+            
+            # Step 1: Search for emails in trash
+            all_message_ids = []
+            page_token = None
+            
+            while len(all_message_ids) < max_emails:
+                try:
+                    result = service.users().messages().list(
+                        userId='me',
+                        q=trash_query,
+                        maxResults=min(500, max_emails - len(all_message_ids)),
+                        pageToken=page_token
+                    ).execute()
+                    
+                    messages = result.get('messages', [])
+                    if not messages:
+                        break
+                    
+                    message_ids = [msg['id'] for msg in messages]
+                    all_message_ids.extend(message_ids)
+                    
+                    page_token = result.get('nextPageToken')
+                    if not page_token:
+                        break
+                        
+                except Exception as e:
+                    logger.error(f"Trash search error: {e}")
+                    break
+            
+            logger.info(f"Found {len(all_message_ids)} emails in trash for query: {trash_query}")
+            
+            # Step 2: Recover using fast batch method
+            if all_message_ids:
+                return self.fast_batch_recover_emails(all_message_ids)
+            else:
+                return {
+                    'status': 'completed',
+                    'total': 0,
+                    'successful': 0,
+                    'failed': 0,
+                    'message': 'No emails found in trash matching the query'
+                }
+                
+        except Exception as e:
+            logger.error(f"Recover by query error: {e}")
+            return {'error': {'message': str(e), 'type': 'query_recover_error'}}
+
+
 
 @shared_task(bind=True)
-def bulk_delete_emails_task(self, user_id, message_ids, permanent=False, batch_size=100):
-    """Celery task for bulk email deletion"""
+def bulk_delete_emails_task(self, user_id, message_ids, permanent=False, batch_size=1000):
+    """Fast bulk deletion using batchModify"""
     try:
         user = User.objects.get(id=user_id)
         deletion_manager = EmailDeletionManager(user)
         
-        total_emails = len(message_ids)
-        processed = 0
-        successful = 0
-        failed = 0
-        errors = []
-        
-        # Process in batches
-        for i in range(0, total_emails, batch_size):
-            batch = message_ids[i:i + batch_size]
-            
-            for message_id in batch:
-                try:
-                    result = deletion_manager.delete_single_email(message_id, permanent)
-                    
-                    if result.get('status') == 'success':
-                        successful += 1
-                    else:
-                        failed += 1
-                        errors.append({
-                            'message_id': message_id,
-                            'error': result.get('error', 'Unknown error')
-                        })
-                    
-                    processed += 1
-                    
-                    # Update task progress
-                    progress = int((processed / total_emails) * 100)
-                    self.update_state(
-                        state='PROGRESS',
-                        meta={
-                            'current': processed,
-                            'total': total_emails,
-                            'progress': progress,
-                            'successful': successful,
-                            'failed': failed
-                        }
-                    )
-                    
-                except Exception as e:
-                    failed += 1
-                    errors.append({
-                        'message_id': message_id,
-                        'error': str(e)
-                    })
-                    processed += 1
-            
-            # Small delay between batches to respect rate limits
-            import time
-            time.sleep(0.1)
-        
-        # Final result
-        result = {
-            'status': 'completed',
-            'total': total_emails,
-            'successful': successful,
-            'failed': failed,
-            'errors': errors[:10],  # Limit error details
-            'action': 'permanently_deleted' if permanent else 'moved_to_trash'
-        }
-        
-        logger.info(f"Bulk deletion completed for user {user.username}: {successful}/{total_emails} successful")
+        # Use the fast batch method
+        result = deletion_manager.fast_batch_delete_emails(
+            message_ids, 
+            permanent=permanent, 
+            batch_size=batch_size
+        )
         
         return result
         
-    except User.DoesNotExist:
-        logger.error(f"User {user_id} not found for bulk delete task")
-        return {'status': 'error', 'message': 'User not found'}
     except Exception as e:
-        logger.error(f"Bulk delete task error: {e}")
         return {'status': 'error', 'message': str(e)}
 
+
 @shared_task(bind=True)
-def bulk_recover_emails_task(self, user_id, message_ids, batch_size=100):
-    """Celery task for bulk email recovery"""
+def bulk_recover_emails_task(self, user_id, message_ids, batch_size=1000):
+    """Fast bulk recovery using batchModify"""
     try:
         user = User.objects.get(id=user_id)
         deletion_manager = EmailDeletionManager(user)
         
-        total_emails = len(message_ids)
-        processed = 0
-        successful = 0
-        failed = 0
-        errors = []
-        
-        # Process in batches
-        for i in range(0, total_emails, batch_size):
-            batch = message_ids[i:i + batch_size]
-            
-            for message_id in batch:
-                try:
-                    result = deletion_manager.recover_email(message_id)
-                    
-                    if result.get('status') == 'success':
-                        successful += 1
-                    else:
-                        failed += 1
-                        errors.append({
-                            'message_id': message_id,
-                            'error': result.get('error', 'Unknown error')
-                        })
-                    
-                    processed += 1
-                    
-                    # Update task progress
-                    progress = int((processed / total_emails) * 100)
-                    self.update_state(
-                        state='PROGRESS',
-                        meta={
-                            'current': processed,
-                            'total': total_emails,
-                            'progress': progress,
-                            'successful': successful,
-                            'failed': failed
-                        }
-                    )
-                    
-                except Exception as e:
-                    failed += 1
-                    errors.append({
-                        'message_id': message_id,
-                        'error': str(e)
-                    })
-                    processed += 1
-            
-            # Small delay between batches
-            import time
-            time.sleep(0.1)
-        
-        # Final result
-        result = {
-            'status': 'completed',
-            'total': total_emails,
-            'successful': successful,
-            'failed': failed,
-            'errors': errors[:10],
-            'action': 'recovered_from_trash'
-        }
-        
-        logger.info(f"Bulk recovery completed for user {user.username}: {successful}/{total_emails} successful")
+        # Use the fast batch recovery method
+        result = deletion_manager.fast_batch_recover_emails(
+            message_ids, 
+            batch_size=batch_size
+        )
         
         return result
         
     except User.DoesNotExist:
-        logger.error(f"User {user_id} not found for bulk recover task")
         return {'status': 'error', 'message': 'User not found'}
     except Exception as e:
         logger.error(f"Bulk recover task error: {e}")
-        return {'status': 'error', 'message': str(e)}    
+        return {'status': 'error', 'message': str(e)}
+    
+
+@shared_task(bind=True)
+def delete_by_query_task(self, user_id, search_query, max_emails=5000, permanent=False):
+    """Delete emails by search query - much easier testing!"""
+    try:
+        user = User.objects.get(id=user_id)
+        deletion_manager = EmailDeletionManager(user)
+        
+        result = deletion_manager.delete_by_query(
+            search_query=search_query,
+            max_emails=max_emails,
+            permanent=permanent
+        )
+        
+        return result
+        
+    except User.DoesNotExist:
+        return {'status': 'error', 'message': 'User not found'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
+
+@shared_task(bind=True)
+def recover_by_query_task(self, user_id, search_query, max_emails=5000):
+    """Recover emails by search query"""
+    try:
+        user = User.objects.get(id=user_id)
+        deletion_manager = EmailDeletionManager(user)
+        
+        result = deletion_manager.recover_by_query(
+            search_query=search_query,
+            max_emails=max_emails
+        )
+        
+        return result
+        
+    except User.DoesNotExist:
+        return {'status': 'error', 'message': 'User not found'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}

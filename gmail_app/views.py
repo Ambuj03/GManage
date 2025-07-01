@@ -24,7 +24,7 @@ from datetime import timedelta, datetime
 from .gmail_operations import GmailOperations, build_search_query
 
 from celery.result import AsyncResult
-from .email_operations import EmailDeletionManager, bulk_delete_emails_task, bulk_recover_emails_task
+from .email_operations import EmailDeletionManager, bulk_delete_emails_task, bulk_recover_emails_task, recover_by_query_task, delete_by_query_task
 
 # Adding logger for enchanced debugging
 import logging
@@ -767,5 +767,82 @@ class TaskStatusView(APIView):
             return Response({
                 'status': 'error',
                 'error': 'Failed to get task status',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+# **************************************************Views to perform deletion/recvover with a search query for testing************************************
+# Add these views:
+
+class DeleteByQueryView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Delete emails by search query - easy bulk testing!"""
+        try:
+            search_query = request.data.get('search_query', '')
+            max_emails = request.data.get('max_emails', 1000)
+            permanent = request.data.get('permanent', False)
+            
+            if not search_query:
+                return Response({
+                    'error': 'search_query required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Start task
+            task = delete_by_query_task.delay(
+                user_id=request.user.id,
+                search_query=search_query,
+                max_emails=max_emails,
+                permanent=permanent
+            )
+            
+            return Response({
+                'status': 'started',
+                'task_id': task.id,
+                'search_query': search_query,
+                'max_emails': max_emails,
+                'permanent': permanent,
+                'message': 'Deletion by query started. Use task_id to check progress.'
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to start deletion by query',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class RecoverByQueryView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Recover emails by search query"""
+        try:
+            search_query = request.data.get('search_query', '')
+            max_emails = request.data.get('max_emails', 1000)
+            
+            if not search_query:
+                return Response({
+                    'error': 'search_query required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Start task
+            task = recover_by_query_task.delay(
+                user_id=request.user.id,
+                search_query=search_query,
+                max_emails=max_emails
+            )
+            
+            return Response({
+                'status': 'started',
+                'task_id': task.id,
+                'search_query': search_query,
+                'max_emails': max_emails,
+                'message': 'Recovery by query started. Use task_id to check progress.'
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to start recovery by query',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
