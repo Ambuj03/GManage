@@ -3,6 +3,7 @@ from .views import ProfileView, UserRegistrationView, UserLoginView, UserLogoutV
 from .views import GoogleAuthURLView, GoogleOAuthCallbackView, GoogleTokenStatusView, GoogleTokenRevokeView, GmailConnectivityTestView
 from rest_framework_simplejwt.views import TokenRefreshView
 from .views import GmailEmailListView, GmailEmailMetadataView, GmailSearchView, GmailLabelsView
+from . import views
 
 urlpatterns = [
     # JWT realted apis
@@ -27,6 +28,10 @@ urlpatterns = [
     path('gmail/search/', GmailSearchView.as_view(), name='gmail_search'),
     path('gmail/labels/', GmailLabelsView.as_view(), name='gmail_labels'),
 
-    #Email operations relaeted apis
-
+    #Email operations related apis
+    path('gmail/emails/delete/<str:message_id>/', views.EmailDeleteView.as_view(), name='email_delete'),
+    path('gmail/emails/recover/<str:message_id>/', views.EmailRecoverView.as_view(), name='email_recover'),
+    path('gmail/emails/bulk-delete/', views.BulkEmailDeleteView.as_view(), name='bulk_email_delete'),
+    path('gmail/emails/bulk-recover/', views.BulkEmailRecoverView.as_view(), name='bulk_email_recover'),
+    path('tasks/<str:task_id>/', views.TaskStatusView.as_view(), name='task_status'),
 ]
