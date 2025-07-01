@@ -23,6 +23,9 @@ from datetime import timedelta, datetime
 
 from .gmail_operations import GmailOperations, build_search_query
 
+from celery.result import AsyncResult
+from .email_operations import EmailDeletionManager, bulk_delete_emails_task, bulk_recover_emails_task
+
 # Adding logger for enchanced debugging
 import logging
 logger = logging.getLogger(__name__)
@@ -97,7 +100,7 @@ class ProfileView(generics.RetrieveUpdateAPIView):
         return self.request.user
     
 
-# Creating OAuth related views
+# **********************************************Creating OAuth related views********************************************
 class GoogleAuthURLView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -337,7 +340,9 @@ class GoogleTokenRevokeView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# Gmail Connectivity Test Views
+# *******************************************Gmail Connectivity Test Views*******************************************
+
+
 from .gmail_utils import test_gmail_connectivity, GmailServiceManager
 
 class GmailConnectivityTestView(APIView):
@@ -580,5 +585,187 @@ class GmailLabelsView(APIView):
             logger.error(f"Labels error for user {request.user.username}: {e}")
             return Response({
                 'error': 'Failed to get labels',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+# ****************************Email Operations, deletion and recovery, single and bulk*********************************
+
+class EmailDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def delete(self, request, message_id):
+        """Delete a single email"""
+        try:
+            permanent = request.data.get('permanent', False)
+            
+            deletion_manager = EmailDeletionManager(request.user)
+            result = deletion_manager.delete_single_email(message_id, permanent)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"Single delete error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Delete operation failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class EmailRecoverView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, message_id):
+        """Recover a single email from trash"""
+        try:
+            deletion_manager = EmailDeletionManager(request.user)
+            result = deletion_manager.recover_email(message_id)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"Single recover error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Recover operation failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class BulkEmailDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Start bulk email deletion task"""
+        try:
+            message_ids = request.data.get('message_ids', [])
+            permanent = request.data.get('permanent', False)
+            batch_size = request.data.get('batch_size', 100)
+            
+            if not message_ids:
+                return Response({
+                    'error': 'message_ids required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if len(message_ids) > 10000:
+                return Response({
+                    'error': 'Too many emails (max 10,000 per operation)'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Start Celery task
+            task = bulk_delete_emails_task.delay(
+                user_id=request.user.id,
+                message_ids=message_ids,
+                permanent=permanent,
+                batch_size=min(batch_size, 500)
+            )
+            
+            return Response({
+                'status': 'started',
+                'task_id': task.id,
+                'total_emails': len(message_ids),
+                'permanent': permanent,
+                'message': 'Bulk deletion started. Use task_id to check progress.'
+            })
+            
+        except Exception as e:
+            logger.error(f"Bulk delete start error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Failed to start bulk deletion',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class BulkEmailRecoverView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Start bulk email recovery task"""
+        try:
+            message_ids = request.data.get('message_ids', [])
+            batch_size = request.data.get('batch_size', 100)
+            
+            if not message_ids:
+                return Response({
+                    'error': 'message_ids required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if len(message_ids) > 10000:
+                return Response({
+                    'error': 'Too many emails (max 10,000 per operation)'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Start Celery task
+            task = bulk_recover_emails_task.delay(
+                user_id=request.user.id,
+                message_ids=message_ids,
+                batch_size=min(batch_size, 500)
+            )
+            
+            return Response({
+                'status': 'started',
+                'task_id': task.id,
+                'total_emails': len(message_ids),
+                'message': 'Bulk recovery started. Use task_id to check progress.'
+            })
+            
+        except Exception as e:
+            logger.error(f"Bulk recover start error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Failed to start bulk recovery',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class TaskStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request, task_id):
+        """Get status of a Celery task"""
+        try:
+            result = AsyncResult(task_id)
+            
+            if result.state == 'PENDING':
+                response_data = {
+                    'status': 'pending',
+                    'progress': 0,
+                    'message': 'Task is waiting to start'
+                }
+            elif result.state == 'PROGRESS':
+                response_data = {
+                    'status': 'in_progress',
+                    'progress': result.info.get('progress', 0),
+                    'current': result.info.get('current', 0),
+                    'total': result.info.get('total', 0),
+                    'successful': result.info.get('successful', 0),
+                    'failed': result.info.get('failed', 0)
+                }
+            elif result.state == 'SUCCESS':
+                response_data = {
+                    'status': 'completed',
+                    'progress': 100,
+                    'result': result.result
+                }
+            else:  # FAILURE
+                response_data = {
+                    'status': 'failed',
+                    'error': str(result.info)
+                }
+            
+            return Response(response_data)
+            
+        except Exception as e:
+            logger.error(f"Task status error: {e}")
+            return Response({
+                'status': 'error',
+                'error': 'Failed to get task status',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
