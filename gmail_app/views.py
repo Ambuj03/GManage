@@ -30,6 +30,8 @@ from .email_operations import EmailDeletionManager, bulk_delete_emails_task, bul
 import logging
 logger = logging.getLogger(__name__)
 
+# ****************************************Login/Register related Views*********************************
+
 class UserLoginView(APIView):
     permission_classes = [AllowAny]
     
@@ -771,8 +773,7 @@ class TaskStatusView(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
         
 
-# **************************************************Views to perform deletion/recvover with a search query for testing************************************
-# Add these views:
+# ******************Views to perform deletion/recvover with a search query for testing************************************
 
 class DeleteByQueryView(APIView):
     permission_classes = [IsAuthenticated]
@@ -844,5 +845,174 @@ class RecoverByQueryView(APIView):
         except Exception as e:
             return Response({
                 'error': 'Failed to start recovery by query',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        
+
+
+# ******************************Advanced operations views********************************************
+from .advanced_operations import EmailPreviewManager, SmartDeletionRules, UndoManager
+
+class EmailPreviewView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request):
+        """Preview emails before bulk deletion"""
+        try:
+            search_query = request.data.get('search_query', '')
+            sample_size = request.data.get('sample_size', 20)
+            
+            if not search_query:
+                return Response({
+                    'error': 'search_query required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            preview_manager = EmailPreviewManager(request.user)
+            result = preview_manager.preview_deletion_query(search_query, sample_size)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result
+            })
+            
+        except Exception as e:
+            logger.error(f"Preview error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Preview failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class DeletionRulesView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get user's deletion rules"""
+        try:
+            rules_manager = SmartDeletionRules(request.user)
+            rules = rules_manager.get_user_rules()
+            
+            return Response({
+                'status': 'success',
+                'rules': rules
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to get rules',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request):
+        """Create a new deletion rule"""
+        try:
+            rule_config = request.data
+            
+            rules_manager = SmartDeletionRules(request.user)
+            result = rules_manager.create_deletion_rule(rule_config)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to create rule',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class ExecuteRuleView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def post(self, request, rule_id):
+        """Execute a specific deletion rule"""
+        try:
+            rules_manager = SmartDeletionRules(request.user)
+            result = rules_manager.execute_rule(rule_id)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to execute rule',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class UndoOperationView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get available undo points"""
+        try:
+            undo_manager = UndoManager(request.user)
+            undo_points = undo_manager.get_undo_history()
+            
+            return Response({
+                'status': 'success',
+                'undo_points': undo_points
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to get undo history',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    
+    def post(self, request, undo_id):
+        """Execute undo operation"""
+        try:
+            undo_manager = UndoManager(request.user)
+            result = undo_manager.execute_undo(undo_id)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'data': result,
+                'message': 'Undo operation completed successfully'
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Undo operation failed',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class EmailStatsView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get email deletion statistics"""
+        try:
+            days_back = int(request.GET.get('days_back', 30))
+            
+            preview_manager = EmailPreviewManager(request.user)
+            stats = preview_manager.get_deletion_statistics(days_back)
+            
+            if 'error' in stats:
+                return Response(stats, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'status': 'success',
+                'stats': stats,
+                'period_days': days_back
+            })
+            
+        except Exception as e:
+            return Response({
+                'error': 'Failed to get statistics',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

@@ -108,7 +108,6 @@ class EmailDeletionManager:
             logger.error(f"Unexpected recover error for user {self.user.username}: {e}")
             return {'error': {'message': str(e), 'type': 'unknown'}}
         
-        # Add this method to EmailDeletionManager:
 
     def fast_batch_delete_emails(self, message_ids, permanent=False, batch_size=1000):
         """Fast deletion using batchModify (PhotoPurge style)"""
@@ -355,23 +354,124 @@ class EmailDeletionManager:
 
 
 @shared_task(bind=True)
-def bulk_delete_emails_task(self, user_id, message_ids, permanent=False, batch_size=1000):
-    """Fast bulk deletion using batchModify"""
+def delete_by_query_task(self, user_id, search_query, max_emails=5000, permanent=False):
+    """Delete emails by search query with undo tracking"""
     try:
+        from .advanced_operations import UndoManager
         user = User.objects.get(id=user_id)
         deletion_manager = EmailDeletionManager(user)
         
-        # Use the fast batch method
+        # Create undo point BEFORE deletion
+        undo_manager = UndoManager(user)
+        undo_data = {
+            'type': 'bulk_delete_query',
+            'search_query': search_query,
+            'max_emails': max_emails,
+            'permanent': permanent
+        }
+        undo_result = undo_manager.create_undo_point(undo_data)
+        
+        # Execute deletion
+        result = deletion_manager.delete_by_query(
+            search_query=search_query,
+            max_emails=max_emails,
+            permanent=permanent
+        )
+        
+        # Add undo_id to result
+        if 'error' not in result and 'error' not in undo_result:
+            result['undo_id'] = undo_result.get('undo_id')
+            result['undo_expires_hours'] = 24
+        
+        # Track statistics
+        if 'error' not in result:
+            track_deletion_stats(user_id, result)
+        
+        return result
+        
+    except User.DoesNotExist:
+        return {'status': 'error', 'message': 'User not found'}
+    except Exception as e:
+        return {'status': 'error', 'message': str(e)}
+
+
+
+@shared_task(bind=True) 
+def bulk_delete_emails_task(self, user_id, message_ids, permanent=False, batch_size=1000):
+    """Fast bulk deletion with undo tracking"""
+    try:
+        from .advanced_operations import UndoManager
+        user = User.objects.get(id=user_id)
+        deletion_manager = EmailDeletionManager(user)
+        
+        # Create undo point BEFORE deletion
+        undo_manager = UndoManager(user)
+        undo_data = {
+            'type': 'bulk_delete',
+            'message_ids': message_ids,
+            'permanent': permanent
+        }
+        undo_result = undo_manager.create_undo_point(undo_data)
+        
+        # Execute deletion
         result = deletion_manager.fast_batch_delete_emails(
             message_ids, 
             permanent=permanent, 
             batch_size=batch_size
         )
         
+        # Add undo_id to result
+        if 'error' not in result and 'error' not in undo_result:
+            result['undo_id'] = undo_result.get('undo_id')
+        
+        # Track statistics
+        if 'error' not in result:
+            track_deletion_stats(user_id, result)
+        
         return result
         
+    except User.DoesNotExist:
+        return {'status': 'error', 'message': 'User not found'}
     except Exception as e:
         return {'status': 'error', 'message': str(e)}
+
+
+
+def track_deletion_stats(user_id, deletion_result):
+    """Track deletion statistics"""
+    try:
+        from django.core.cache import cache
+        
+        # Get current stats
+        cache_key = f"deletion_stats_{user_id}_30"
+        stats = cache.get(cache_key, {
+            'total_deleted': 0,
+            'storage_saved_mb': 0,
+            'deletion_sessions': 0,
+            'most_deleted_category': 'promotions',
+            'avg_emails_per_session': 0
+        })
+        
+        # Update stats
+        successful = deletion_result.get('successful', 0)
+        stats['total_deleted'] += successful
+        stats['deletion_sessions'] += 1
+        stats['avg_emails_per_session'] = stats['total_deleted'] / stats['deletion_sessions']
+        
+        # Estimate storage saved (rough calculation)
+        # Average email size ~50KB
+        storage_saved_kb = successful * 50
+        stats['storage_saved_mb'] += round(storage_saved_kb / 1024, 2)
+        
+        # Save updated stats
+        cache.set(cache_key, stats, 86400 * 30)  # Cache for 30 days
+        
+        logger.info(f"Updated deletion stats for user {user_id}: +{successful} emails")
+        
+    except Exception as e:
+        logger.error(f"Failed to track deletion stats: {e}")
+
+
 
 
 @shared_task(bind=True)
@@ -396,25 +496,6 @@ def bulk_recover_emails_task(self, user_id, message_ids, batch_size=1000):
         return {'status': 'error', 'message': str(e)}
     
 
-@shared_task(bind=True)
-def delete_by_query_task(self, user_id, search_query, max_emails=5000, permanent=False):
-    """Delete emails by search query - much easier testing!"""
-    try:
-        user = User.objects.get(id=user_id)
-        deletion_manager = EmailDeletionManager(user)
-        
-        result = deletion_manager.delete_by_query(
-            search_query=search_query,
-            max_emails=max_emails,
-            permanent=permanent
-        )
-        
-        return result
-        
-    except User.DoesNotExist:
-        return {'status': 'error', 'message': 'User not found'}
-    except Exception as e:
-        return {'status': 'error', 'message': str(e)}
 
 @shared_task(bind=True)
 def recover_by_query_task(self, user_id, search_query, max_emails=5000):
