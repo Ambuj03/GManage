@@ -10,6 +10,16 @@ ENV/
 env.bak/
 venv.bak/
 
+# Backend specific
+backend/__pycache__/
+backend/db.sqlite3
+backend/.env
+
+# Frontend specific (when you add React)
+frontend/node_modules/
+frontend/build/
+frontend/.env.local
+
 # Dependencies
 node_modules/
 npm-debug.log*
@@ -59,10 +69,8 @@ coverage/
 *.sqlite
 db.sqlite3
 
-
 # Temporary files
 tmp/
-temp/
 temp/
 
 # Redis
