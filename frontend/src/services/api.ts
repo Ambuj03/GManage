@@ -32,7 +32,7 @@ class ApiService {
     // Request interceptor to add auth token
     this.api.interceptors.request.use((config) => {
       const token = localStorage.getItem('access_token');
-      // Don't add token to auth endpoints
+      // Always add token except for auth endpoints
       if (token && !config.url?.includes('/auth/login') && !config.url?.includes('/auth/register')) {
         config.headers.Authorization = `Bearer ${token}`;
       }
@@ -45,11 +45,12 @@ class ApiService {
       async (error) => {
         const originalRequest = error.config;
 
-        // Don't retry auth endpoints or if already retried
+        // Don't retry specific endpoints or if already retried
         if (
           originalRequest._retry ||
-          originalRequest.url?.includes('/auth/') ||
-          originalRequest.url?.includes('/refresh/') ||
+          originalRequest.url?.includes('/auth/login') ||
+          originalRequest.url?.includes('/auth/register') ||
+          originalRequest.url?.includes('/auth/refresh') ||
           !localStorage.getItem('refresh_token')
         ) {
           return Promise.reject(error);
@@ -58,8 +59,7 @@ class ApiService {
         if (error.response?.status === 401) {
           if (!this.isRefreshing) {
             this.isRefreshing = true;
-            this.refreshPromise = this.refreshToken().catch(() => {
-              // Clear tokens and redirect on refresh failure
+            this.refreshPromise = this.refreshTokenInternal().catch(() => {
               this.clearAuthData();
               window.location.href = '/login';
               throw error;
@@ -93,10 +93,22 @@ class ApiService {
     localStorage.removeItem('refresh_token');
   }
 
+  private async refreshTokenInternal(): Promise<AuthTokens> {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+      throw new Error('No refresh token available');
+    }
+    
+    const response = await axios.post(`${process.env.REACT_APP_API_URL || 'http://localhost:8000/api/v1'}/auth/refresh/`, {
+      refresh: refreshToken,
+    });
+    return response.data;
+  }
+
   // Auth APIs
   async login(credentials: LoginRequest): Promise<AuthTokens> {
-    const response = await this.api.post<AuthTokens>('/auth/login/', credentials);
-    return response.data;
+    const response = await this.api.post('/auth/login/', credentials);
+    return response.data.tokens;
   }
 
   async register(userData: RegisterRequest): Promise<User> {
@@ -105,34 +117,25 @@ class ApiService {
   }
 
   async logout(): Promise<void> {
-    // Don't call API logout if we don't have valid tokens
     const refreshToken = localStorage.getItem('refresh_token');
     if (refreshToken) {
       try {
         await this.api.post('/auth/logout/', { refresh: refreshToken });
       } catch (error) {
-        // Ignore logout API errors - just clear local data
         console.warn('Logout API failed, clearing local tokens:', error);
       }
     }
   }
 
   async refreshToken(): Promise<AuthTokens> {
-    const refreshToken = localStorage.getItem('refresh_token');
-    if (!refreshToken) {
-      throw new Error('No refresh token available');
-    }
-    
-    const response = await this.api.post<AuthTokens>('/auth/refresh/', {
-      refresh: refreshToken,
-    });
-    return response.data;
+    return this.refreshTokenInternal();
   }
 
-  // Google OAuth APIs
+  // Google OAuth APIs - MATCHING YOUR BACKEND EXACTLY
   async getGoogleAuthUrl(): Promise<{ url: string }> {
-    const response = await this.api.get<{ url: string }>('/auth/google/url/');
-    return response.data;
+    const response = await this.api.get('/auth/google/url/');
+    // Your backend returns { auth_url, state, message, success }
+    return { url: response.data.auth_url };
   }
 
   async handleGoogleCallback(code: string, state: string): Promise<void> {
@@ -140,8 +143,14 @@ class ApiService {
   }
 
   async getGoogleOAuthStatus(): Promise<GoogleOAuthStatus> {
-    const response = await this.api.get<GoogleOAuthStatus>('/auth/google/status/');
-    return response.data;
+    const response = await this.api.get('/auth/google/status/');
+    const data = response.data;
+    
+    // Add computed field for compatibility
+    return {
+      ...data,
+      authenticated: data.has_token && data.is_connected && !data.is_expired
+    };
   }
 
   async revokeGoogleAuth(): Promise<void> {
@@ -150,7 +159,7 @@ class ApiService {
 
   // Gmail APIs
   async testGmailConnectivity(): Promise<{ status: string; connected: boolean }> {
-    const response = await this.api.get<{ status: string; connected: boolean }>('/gmail/connectivity/');
+    const response = await this.api.get('/gmail/connectivity/');
     return response.data;
   }
 
@@ -188,7 +197,6 @@ class ApiService {
     return response.data;
   }
 
-  // Query-based Operations
   async deleteByQuery(request: DeleteByQueryRequest): Promise<TaskStatus> {
     const response = await this.api.post<TaskStatus>('/gmail/delete-by-query/', request);
     return response.data;
@@ -199,13 +207,11 @@ class ApiService {
     return response.data;
   }
 
-  // Preview
   async previewEmails(request: PreviewRequest): Promise<PreviewResponse> {
     const response = await this.api.post<PreviewResponse>('/gmail/preview/', request);
     return response.data;
   }
 
-  // Rules Management
   async getDeletionRules(): Promise<DeletionRule[]> {
     const response = await this.api.get<DeletionRule[]>('/gmail/rules/');
     return response.data;
@@ -221,7 +227,6 @@ class ApiService {
     return response.data;
   }
 
-  // Task Management
   async getTaskStatus(taskId: string): Promise<TaskStatus> {
     const response = await this.api.get<TaskStatus>(`/tasks/${taskId}/`);
     return response.data;

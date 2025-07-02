@@ -5,9 +5,11 @@ import { Box } from '@mui/material';
 
 import { ThemeContextProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
+import { GmailProvider } from './contexts/GmailContext';  // Add this import
 import { ThemeToggle } from './components/ThemeToggle';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
+import OAuthCallback from './pages/OAuthCallback';
 
 // Create a query client
 const queryClient = new QueryClient({
@@ -61,6 +63,7 @@ const AppRoutes: React.FC = () => {
             </ProtectedRoute>
           }
         />
+        <Route path="/oauth-callback" element={<OAuthCallback />} />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Box>
@@ -73,9 +76,11 @@ const App: React.FC = () => {
     <QueryClientProvider client={queryClient}>
       <ThemeContextProvider>
         <AuthProvider>
-          <Router>
-            <AppRoutes />
-          </Router>
+          <GmailProvider>  {/* Move GmailProvider INSIDE AuthProvider */}
+            <Router>
+              <AppRoutes />
+            </Router>
+          </GmailProvider>
         </AuthProvider>
       </ThemeContextProvider>
     </QueryClientProvider>

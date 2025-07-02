@@ -55,11 +55,12 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const login = async (credentials: LoginRequest) => {
     try {
-      const tokens = await apiService.login(credentials);
-      localStorage.setItem('access_token', tokens.access);
-      localStorage.setItem('refresh_token', tokens.refresh);
+      const loginResponse = await apiService.login(credentials);
       
-      // Create user object
+      localStorage.setItem('access_token', loginResponse.access);
+      localStorage.setItem('refresh_token', loginResponse.refresh);
+      
+      // Create user object from Django response
       setUser({
         id: 1,
         username: credentials.username,

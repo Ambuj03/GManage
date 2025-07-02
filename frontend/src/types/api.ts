@@ -18,7 +18,7 @@ export interface RegisterRequest {
   username: string;
   email: string;
   password: string;
-  password_confirm: string;  // Django expects this field
+  password_confirm: string;
 }
 
 export interface AuthTokens {
@@ -26,15 +26,22 @@ export interface AuthTokens {
   refresh: string;
 }
 
-// Google OAuth Types
+// Google OAuth Types - EXACTLY matching your Django backend
 export interface GoogleOAuthStatus {
-  authenticated: boolean;
-  email?: string;
-  profile?: {
-    name: string;
-    email: string;
-    picture: string;
+  has_token: boolean;
+  is_expired: boolean | null;
+  is_connected: boolean;
+  scopes: string[];
+  message?: string;
+  gmail_info?: {
+    email_address: string;
+    messages_total: number;
+    threads_total: number;
   };
+  created_at?: string;
+  updated_at?: string;
+  // Computed field for compatibility
+  authenticated: boolean;
 }
 
 // Gmail Types
@@ -84,7 +91,7 @@ export interface DeleteByQueryRequest {
 }
 
 export interface PreviewRequest {
-  search_query: string;  // Backend expects 'search_query', not 'query'
+  search_query: string;
   sample_size?: number;
 }
 
@@ -115,7 +122,6 @@ export interface TaskStatus {
   };
 }
 
-// API Error Response
 export interface ApiError {
   detail?: string;
   [key: string]: any;
