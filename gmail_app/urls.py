@@ -39,4 +39,13 @@ urlpatterns = [
     path('gmail/delete-by-query/', views.DeleteByQueryView.as_view(), name='query_email_delete'),
     path('gmail/recover-by-query/', views.RecoverByQueryView.as_view(), name='query_email_recover'),
 
+
+    #Advance operations -> Preview before deletion, Undo etc related Apis
+    path('gmail/preview/', views.EmailPreviewView.as_view(), name='email_preview'),
+    path('gmail/rules/', views.DeletionRulesView.as_view(), name='deletion_rules'),
+    path('gmail/rules/<str:rule_id>/execute/', views.ExecuteRuleView.as_view(), name='execute_rule'),
+    path('gmail/undo/', views.UndoOperationView.as_view(), name='undo_operations'),
+    path('gmail/undo/<str:undo_id>/', views.UndoOperationView.as_view(), name='execute_undo'),
+    path('gmail/stats/', views.EmailStatsView.as_view(), name='email_stats'),
+
 ]
