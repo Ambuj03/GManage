@@ -28,46 +28,47 @@ interface AuthProviderProps {
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-
-  const isAuthenticated = !!user && !!localStorage.getItem('access_token');
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
 
   const clearAuthData = () => {
     localStorage.removeItem('access_token');
     localStorage.removeItem('refresh_token');
     setUser(null);
+    setIsAuthenticated(false);
+  };
+
+  const fetchUserProfile = async () => {
+    try {
+      const userProfile = await apiService.getCurrentUser();
+      setUser(userProfile);
+      setIsAuthenticated(true); // Add this line!
+    } catch (error) {
+      console.error('Failed to fetch user profile:', error);
+      clearAuthData();
+    }
   };
 
   useEffect(() => {
-    // Check if user is logged in on app start
-    const token = localStorage.getItem('access_token');
-    if (token) {
-      // Create basic user object - we'll fetch real data later
-      setUser({
-        id: 1,
-        username: 'user',
-        email: '',
-        first_name: '',
-        last_name: '',
-      });
-    }
-    setIsLoading(false);
+    const initializeAuth = async () => {
+      const token = localStorage.getItem('access_token');
+      if (token) {
+        await fetchUserProfile(); // This will now set isAuthenticated to true
+      }
+      setIsLoading(false);
+    };
+
+    initializeAuth();
   }, []);
 
   const login = async (credentials: LoginRequest) => {
     try {
       const loginResponse = await apiService.login(credentials);
-      
+
       localStorage.setItem('access_token', loginResponse.access);
       localStorage.setItem('refresh_token', loginResponse.refresh);
-      
-      // Create user object from Django response
-      setUser({
-        id: 1,
-        username: credentials.username,
-        email: '',
-        first_name: '',
-        last_name: '',
-      });
+
+      // Fetch real user profile after successful login
+      await fetchUserProfile(); // This will now set isAuthenticated to true
     } catch (error) {
       clearAuthData();
       throw error;

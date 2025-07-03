@@ -97,7 +97,8 @@ const LoginPage: React.FC = () => {
     try {
       await login(loginData);
       setSuccess('Login successful!');
-      // Redirect will be handled by App.tsx routing
+      // Add explicit redirect
+      window.location.href = '/dashboard';
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Login failed');
     } finally {

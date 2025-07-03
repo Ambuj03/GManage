@@ -139,24 +139,21 @@ class GoogleOAuthCallbackView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        """Handle Google OAuth2 callback with enhanced validation and Gmail testing"""
+        """Handle Google OAuth2 callback and redirect to frontend"""
         code = request.GET.get('code')
         state = request.GET.get('state')
         error = request.GET.get('error')
+        
+        # Get frontend URL from settings
+        frontend_url = getattr(settings, 'FRONTEND_URL', 'http://localhost:3000')
 
         if error:
             logger.warning(f"OAuth authorization denied: {error}")
-            return Response({
-                'error': f'OAuth authorization denied: {error}',
-                'success': False
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return redirect(f"{frontend_url}/dashboard?oauth=error&message={error}")
         
         if not state or not code:
             logger.warning("OAuth callback missing required parameters")
-            return Response({
-                'error': 'Missing authorization code or state parameter',
-                'success': False
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return redirect(f"{frontend_url}/dashboard?oauth=error&message=missing_parameters")
         
         try:
             # Validate user from state
@@ -164,28 +161,19 @@ class GoogleOAuthCallbackView(APIView):
                 user = User.objects.get(id=int(state))
             except (User.DoesNotExist, ValueError):
                 logger.error(f"Invalid state parameter: {state}")
-                return Response({
-                    'error': 'Invalid authorization state',
-                    'success': False
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return redirect(f"{frontend_url}/dashboard?oauth=error&message=invalid_state")
         
             # Manual token exchange with enhanced error handling
             try:
                 token_response = exchange_code_for_tokens(code)
             except Exception as e:
                 logger.error(f"Token exchange failed for user {user.username}: {e}")
-                return Response({
-                    'error': f'Token exchange failed: {str(e)}',
-                    'success': False
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return redirect(f"{frontend_url}/dashboard?oauth=error&message=token_exchange_failed")
 
             # Validate required tokens
             if 'access_token' not in token_response:
                 logger.error(f"No access token received for user {user.username}")
-                return Response({
-                    'error': 'Invalid token response from Google',
-                    'success': False
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return redirect(f"{frontend_url}/dashboard?oauth=error&message=invalid_token_response")
 
             # Get granted scopes from URL parameter
             granted_scopes_param = request.GET.get('scope', '')
@@ -197,11 +185,7 @@ class GoogleOAuthCallbackView(APIView):
             
             if missing_scopes:
                 logger.warning(f"Missing required scopes for user {user.username}: {missing_scopes}")
-                return Response({
-                    'error': f'Required Gmail permissions not granted: {missing_scopes}',
-                    'success': False,
-                    'granted_scopes': granted_scopes
-                }, status=status.HTTP_400_BAD_REQUEST)
+                return redirect(f"{frontend_url}/dashboard?oauth=error&message=missing_scopes")
 
             # Calculate expiry with timezone awareness
             expiry = None
@@ -224,43 +208,25 @@ class GoogleOAuthCallbackView(APIView):
             )
 
             # Test Gmail API connection
+            gmail_address = 'Unknown'
             try:
                 gmail_service = create_gmail_service(user)
-                if not gmail_service:
-                    logger.error(f"Gmail service creation failed for user {user.username}")
-                    return Response({
-                        'error': 'Failed to connect to Gmail API. Please try again.',
-                        'success': False
-                    }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-                
-                # Test with a simple API call
-                profile = gmail_service.users().getProfile(userId='me').execute()
-                gmail_address = profile.get('emailAddress', 'Unknown')
+                if gmail_service:
+                    profile = gmail_service.users().getProfile(userId='me').execute()
+                    gmail_address = profile.get('emailAddress', 'Unknown')
                 
             except Exception as e:
                 logger.error(f"Gmail API test failed for user {user.username}: {e}")
-                # Don't fail the whole process, just warn
-                gmail_address = 'Unable to verify'
+                # Don't fail the whole process, just continue
 
             logger.info(f"OAuth setup successful for user {user.username}, Gmail: {gmail_address}")
             
-            return Response({
-                'message': 'Gmail authorization successful',
-                'success': True,
-                'token_created': created,
-                'granted_scopes': granted_scopes,
-                'gmail_address': gmail_address,
-                'user_email': user.email
-            })
+            # Redirect to frontend with success
+            return redirect(f"{frontend_url}/dashboard?oauth=success&email={gmail_address}")
         
         except Exception as e:
             logger.error(f"OAuth callback error for user state {state}: {e}")
-            return Response({
-                'error': f'Authorization failed: {str(e)}',
-                'success': False
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-
+            return redirect(f"{frontend_url}/dashboard?oauth=error&message=server_error")
 
 class GoogleTokenStatusView(APIView):
     permission_classes = [IsAuthenticated]

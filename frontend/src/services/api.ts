@@ -236,6 +236,11 @@ class ApiService {
     const response = await this.api.get<TaskStatus>(`/tasks/${taskId}/`);
     return response.data;
   }
+
+  async getCurrentUser(): Promise<any> {
+    const response = await this.api.get('/profile/');  // Use existing endpoint
+    return response.data;
+  }
 }
 
 export const apiService = new ApiService();

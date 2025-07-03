@@ -225,3 +225,6 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
+
+
+FRONTEND_URL = 'http://localhost:3000'

@@ -5,7 +5,7 @@ import { Box } from '@mui/material';
 
 import { ThemeContextProvider } from './contexts/ThemeContext';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
-import { GmailProvider } from './contexts/GmailContext';  // Add this import
+import { GmailProvider } from './contexts/GmailContext';
 import { ThemeToggle } from './components/ThemeToggle';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
@@ -81,18 +81,18 @@ const AppRoutes: React.FC = () => {
   );
 };
 
-// Main App Component
+// Main App Component - FIXED ROUTER CONTEXT ISSUE
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeContextProvider>
-        <AuthProvider>
-          <GmailProvider>  {/* Move GmailProvider INSIDE AuthProvider */}
-            <Router>
+        <Router>
+          <AuthProvider>
+            <GmailProvider>
               <AppRoutes />
-            </Router>
-          </GmailProvider>
-        </AuthProvider>
+            </GmailProvider>
+          </AuthProvider>
+        </Router>
       </ThemeContextProvider>
     </QueryClientProvider>
   );
