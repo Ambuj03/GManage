@@ -10,6 +10,9 @@ import { ThemeToggle } from './components/ThemeToggle';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import OAuthCallback from './pages/OAuthCallback';
+import EmailManagement from './pages/EmailManagement';
+import BulkOperations from './pages/BulkOperations';
+import RecoveryTools from './pages/RecoveryTools';
 
 // Create a query client
 const queryClient = new QueryClient({
@@ -34,27 +37,12 @@ const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ children }) =
 
 // Main App Routes
 const AppRoutes: React.FC = () => {
-  const { isAuthenticated } = useAuth();
-
   return (
     <Box sx={{ minHeight: '100vh', position: 'relative' }}>
-      {/* Theme Toggle - Always visible */}
-      <Box
-        sx={{
-          position: 'fixed',
-          top: 16,
-          right: 16,
-          zIndex: 1000,
-        }}
-      >
-        <ThemeToggle />
-      </Box>
-
+      <ThemeToggle />
       <Routes>
-        <Route 
-          path="/login" 
-          element={isAuthenticated ? <Navigate to="/dashboard" replace /> : <LoginPage />} 
-        />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/oauth-callback" element={<OAuthCallback />} />
         <Route
           path="/dashboard"
           element={
@@ -63,7 +51,30 @@ const AppRoutes: React.FC = () => {
             </ProtectedRoute>
           }
         />
-        <Route path="/oauth-callback" element={<OAuthCallback />} />
+        <Route
+          path="/emails"
+          element={
+            <ProtectedRoute>
+              <EmailManagement />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/bulk-operations"
+          element={
+            <ProtectedRoute>
+              <BulkOperations />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/recovery"
+          element={
+            <ProtectedRoute>
+              <RecoveryTools />
+            </ProtectedRoute>
+          }
+        />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Box>
