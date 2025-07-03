@@ -163,6 +163,11 @@ class ApiService {
     return response.data;
   }
 
+  async getEmailStats(): Promise<any> {
+    const response = await this.api.get('/gmail/stats/');
+    return response.data;
+  }
+
   async getEmails(params: EmailSearchParams): Promise<EmailSearchResponse> {
     const response = await this.api.get<EmailSearchResponse>('/gmail/emails/', { params });
     return response.data;
