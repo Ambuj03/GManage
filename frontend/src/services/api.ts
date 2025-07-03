@@ -14,7 +14,7 @@ import {
   PreviewResponse,
   DeletionRule,
   TaskStatus
-} from '../types/api';
+} from '../types/interfaces';
 
 class ApiService {
   private api: AxiosInstance;
@@ -169,18 +169,34 @@ class ApiService {
   }
 
   async getEmails(params: EmailSearchParams): Promise<EmailSearchResponse> {
-    const response = await this.api.get<EmailSearchResponse>('/gmail/emails/', { params });
-    return response.data;
+    const response = await this.api.get('/gmail/emails/', { params });
+    
+    // FIXED: Backend now returns correct structure
+    return {
+      results: response.data.results || [],
+      count: response.data.count || 0,
+      next: response.data.next || null,
+      previous: response.data.previous || null
+    };
   }
 
   async searchEmails(params: EmailSearchParams): Promise<EmailSearchResponse> {
-    const response = await this.api.get<EmailSearchResponse>('/gmail/search/', { params });
-    return response.data;
+    const response = await this.api.get('/gmail/search/', { params });
+    
+    // FIXED: Backend now returns the correct structure directly
+    return {
+      results: response.data.results || [],
+      count: response.data.count || 0,
+      next: response.data.next || null,
+      previous: response.data.previous || null
+    };
   }
 
   async getGmailLabels(): Promise<GmailLabel[]> {
-    const response = await this.api.get<GmailLabel[]>('/gmail/labels/');
-    return response.data;
+    const response = await this.api.get('/gmail/labels/');
+    // Backend returns { all_labels: [...], system_labels: [...], user_labels: [...] }
+    // We want all_labels for the dropdown
+    return response.data.all_labels || [];
   }
 
   // Email Management APIs
@@ -212,6 +228,17 @@ class ApiService {
     return response.data;
   }
 
+  // ADD MISSING METHODS FOR BULK OPERATIONS
+  async bulkDeleteByQuery(params: { q: string; max_emails: number }): Promise<TaskStatus> {
+    const response = await this.api.post<TaskStatus>('/gmail/delete-by-query/', params);
+    return response.data;
+  }
+
+  async bulkRecoverByQuery(params: { q: string; max_emails: number }): Promise<TaskStatus> {
+    const response = await this.api.post<TaskStatus>('/gmail/recover-by-query/', params);
+    return response.data;
+  }
+
   async previewEmails(request: PreviewRequest): Promise<PreviewResponse> {
     const response = await this.api.post<PreviewResponse>('/gmail/preview/', request);
     return response.data;
@@ -239,6 +266,19 @@ class ApiService {
 
   async getCurrentUser(): Promise<any> {
     const response = await this.api.get('/profile/');  // Use existing endpoint
+    return response.data;
+  }
+
+  // Add new count method
+  async getEmailCount(query: string, maxCount?: number): Promise<{ count: number; is_estimate: boolean }> {
+    const params: any = { q: query };
+    
+    // Only add max_count if specified
+    if (maxCount) {
+      params.max_count = maxCount;
+    }
+    
+    const response = await this.api.get('/gmail/count/', { params });
     return response.data;
   }
 }

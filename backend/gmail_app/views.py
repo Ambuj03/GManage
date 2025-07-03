@@ -380,48 +380,47 @@ class GmailEmailListView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        """List emails with optional filtering and pagination"""
+        """List emails with pagination"""
         try:
-            # Get query parameters
-            query = request.GET.get('q', '')
-            max_results = int(request.GET.get('max_results', 50))
+            page_size = int(request.GET.get('page_size', 20))
             page_token = request.GET.get('page_token')
-            label_ids = request.GET.getlist('label_ids')
-            
-            # Limit max results
-            max_results = min(max_results, 500)
+            label_ids = request.GET.getlist('label_ids', [])
             
             gmail_ops = GmailOperations(request.user)
-            result = gmail_ops.list_emails(
+            
+            # Build query
+            query_parts = []
+            if label_ids:
+                for label_id in label_ids:
+                    query_parts.append(f'label:{label_id}')
+            
+            query = ' '.join(query_parts) if query_parts else ''
+            
+            result = gmail_ops.search_emails(
                 query=query,
-                max_results=max_results,
-                page_token=page_token,
-                label_ids=label_ids if label_ids else None
+                max_results=page_size,
+                page_token=page_token
             )
             
             if 'error' in result:
-                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+                return Response({
+                    'status': 'error',
+                    'error': result['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
             
+            # Return same structure as search
             return Response({
-                'status': 'success',
-                'data': result,
-                'pagination': {
-                    'current_count': len(result['messages']),
-                    'next_page_token': result.get('nextPageToken'),
-                    'total_estimate': result.get('resultSizeEstimate', 0)
-                }
+                'results': result.get('messages', []),
+                'count': result.get('resultSizeEstimate', 0),
+                'next': result.get('nextPageToken'),
+                'previous': None
             })
             
-        except ValueError as e:
-            return Response({
-                'error': 'Invalid parameter format',
-                'details': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Email list error for user {request.user.username}: {e}")
+            logger.error(f"List emails error for user {request.user.username}: {e}")
             return Response({
-                'error': 'Failed to list emails',
-                'details': str(e)
+                'status': 'error',
+                'error': f'Failed to list emails: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class GmailEmailMetadataView(APIView):
@@ -465,37 +464,63 @@ class GmailSearchView(APIView):
     permission_classes = [IsAuthenticated]
     
     def get(self, request):
-        """Search emails using query string"""
+        """Search emails with Gmail query syntax"""
         try:
-            query = request.GET.get('q', '')
-            max_results = int(request.GET.get('max_results', 100))
+            search_query = request.GET.get('q', '')
+            page_size = int(request.GET.get('page_size', 20))
+            page_token = request.GET.get('page_token')
             
-            if not query:
+            if not search_query.strip():
                 return Response({
-                    'error': 'Search query (q) parameter required'
+                    'status': 'error',
+                    'error': 'Search query (q) parameter is required'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             gmail_ops = GmailOperations(request.user)
-            result = gmail_ops.search_emails(query, max_results)
+            
+            # Get emails matching the search query
+            result = gmail_ops.search_emails(
+                query=search_query,
+                max_results=page_size,
+                page_token=page_token
+            )
             
             if 'error' in result:
-                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+                return Response({
+                    'status': 'error',
+                    'error': result['error']
+                }, status=status.HTTP_400_BAD_REQUEST)
             
+            # Process email data for frontend
+            processed_emails = []
+            for email in result.get('messages', []):
+                processed_emails.append({
+                    'id': email.get('id'),
+                    'threadId': email.get('threadId'),
+                    'labelIds': email.get('labelIds', []),
+                    'snippet': email.get('snippet', ''),
+                    'from': email.get('from', 'Unknown'),
+                    'to': email.get('to', 'Unknown'),
+                    'subject': email.get('subject', 'No Subject'),
+                    'date': email.get('date', 'Unknown'),
+                    'size': email.get('sizeEstimate', 0),
+                    'labels': email.get('labelIds', [])
+                })
+            
+            # FIXED: Return structure that matches frontend expectations
             return Response({
-                'status': 'success',
-                'data': result
+                'results': processed_emails,  # Frontend expects 'results'
+                'count': result.get('resultSizeEstimate', 0),  # Frontend expects 'count'
+                'next': result.get('nextPageToken'),
+                'previous': None,
+                'query': search_query
             })
             
-        except ValueError as e:
-            return Response({
-                'error': 'Invalid parameter format',
-                'details': str(e)
-            }, status=status.HTTP_400_BAD_REQUEST)
         except Exception as e:
-            logger.error(f"Email search error for user {request.user.username}: {e}")
+            logger.error(f"Search error for user {request.user.username}: {e}")
             return Response({
-                'error': 'Search failed',
-                'details': str(e)
+                'status': 'error',
+                'error': f'Search failed: {str(e)}'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     
     def post(self, request):
@@ -702,38 +727,48 @@ class TaskStatusView(APIView):
             result = AsyncResult(task_id)
             
             if result.state == 'PENDING':
-                response_data = {
-                    'status': 'pending',
-                    'progress': 0,
-                    'message': 'Task is waiting to start'
-                }
+                return Response({
+                    'task_id': task_id,
+                    'status': 'PENDING',
+                    'progress': {
+                        'current': 0,
+                        'total': 0,
+                        'message': 'Task is waiting to start'
+                    }
+                })
             elif result.state == 'PROGRESS':
-                response_data = {
-                    'status': 'in_progress',
-                    'progress': result.info.get('progress', 0),
-                    'current': result.info.get('current', 0),
-                    'total': result.info.get('total', 0),
-                    'successful': result.info.get('successful', 0),
-                    'failed': result.info.get('failed', 0)
-                }
+                return Response({
+                    'task_id': task_id,
+                    'status': 'PROGRESS',
+                    'progress': {
+                        'current': result.info.get('current', 0),
+                        'total': result.info.get('total', 0),
+                        'message': result.info.get('message', 'Processing...')
+                    }
+                })
             elif result.state == 'SUCCESS':
-                response_data = {
-                    'status': 'completed',
-                    'progress': 100,
-                    'result': result.result
-                }
+                return Response({
+                    'task_id': task_id,
+                    'status': 'SUCCESS',
+                    'result': result.result,
+                    'progress': {
+                        'current': result.result.get('total', 0),
+                        'total': result.result.get('total', 0),
+                        'message': 'Completed successfully'
+                    }
+                })
             else:  # FAILURE
-                response_data = {
-                    'status': 'failed',
-                    'error': str(result.info)
-                }
-            
-            return Response(response_data)
-            
+                return Response({
+                    'task_id': task_id,
+                    'status': 'FAILURE',
+                    'result': {
+                        'error': str(result.info) if result.info else 'Unknown error'
+                    }
+                })
+                
         except Exception as e:
             logger.error(f"Task status error: {e}")
             return Response({
-                'status': 'error',
                 'error': 'Failed to get task status',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
@@ -745,15 +780,21 @@ class DeleteByQueryView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        """Delete emails by search query - easy bulk testing!"""
+        """Delete emails by search query with user-specified count"""
         try:
-            search_query = request.data.get('search_query', '')
-            max_emails = request.data.get('max_emails', 1000)
+            search_query = request.data.get('q', '')
+            max_emails = request.data.get('max_emails', 1000)  # User specifies this
             permanent = request.data.get('permanent', False)
             
             if not search_query:
                 return Response({
-                    'error': 'search_query required'
+                    'error': 'q parameter required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            # Validate max_emails
+            if max_emails > 10000:
+                return Response({
+                    'error': 'Maximum 10,000 emails per operation'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Start task
@@ -770,7 +811,7 @@ class DeleteByQueryView(APIView):
                 'search_query': search_query,
                 'max_emails': max_emails,
                 'permanent': permanent,
-                'message': 'Deletion by query started. Use task_id to check progress.'
+                'message': f'Deletion started for up to {max_emails} emails. Use task_id to check progress.'
             })
             
         except Exception as e:
@@ -783,14 +824,19 @@ class RecoverByQueryView(APIView):
     permission_classes = [IsAuthenticated]
     
     def post(self, request):
-        """Recover emails by search query"""
+        """Recover emails by search query with user-specified count"""
         try:
-            search_query = request.data.get('search_query', '')
+            search_query = request.data.get('q', '')
             max_emails = request.data.get('max_emails', 1000)
             
             if not search_query:
                 return Response({
-                    'error': 'search_query required'
+                    'error': 'q parameter required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            if max_emails > 10000:
+                return Response({
+                    'error': 'Maximum 10,000 emails per operation'
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             # Start task
@@ -805,7 +851,7 @@ class RecoverByQueryView(APIView):
                 'task_id': task.id,
                 'search_query': search_query,
                 'max_emails': max_emails,
-                'message': 'Recovery by query started. Use task_id to check progress.'
+                'message': f'Recovery started for up to {max_emails} emails. Use task_id to check progress.'
             })
             
         except Exception as e:
@@ -825,12 +871,13 @@ class EmailPreviewView(APIView):
     def post(self, request):
         """Preview emails before bulk deletion"""
         try:
-            search_query = request.data.get('search_query', '')
-            sample_size = request.data.get('sample_size', 20)
+            # FIXED: Use 'q' to match frontend and other APIs
+            search_query = request.data.get('q', '')  # Changed from 'search_query'
+            sample_size = request.data.get('max_results', 20)  # Changed from 'sample_size'
             
             if not search_query:
                 return Response({
-                    'error': 'search_query required'
+                    'error': 'q parameter required'  # Updated error message
                 }, status=status.HTTP_400_BAD_REQUEST)
             
             preview_manager = EmailPreviewManager(request.user)
@@ -839,9 +886,13 @@ class EmailPreviewView(APIView):
             if 'error' in result:
                 return Response(result, status=status.HTTP_400_BAD_REQUEST)
             
+            # FIXED: Transform response to match frontend expectations
             return Response({
                 'status': 'success',
-                'data': result
+                'emails': result.get('preview_emails', []),  # Changed from 'preview_emails'
+                'total_estimate': result.get('total_count', 0),  # Changed from 'total_count'
+                'sample_count': result.get('sample_size', 0),
+                'estimated_deletion_time': f"{result.get('estimated_storage_mb', 0)} MB"
             })
             
         except Exception as e:
@@ -980,5 +1031,39 @@ class EmailStatsView(APIView):
         except Exception as e:
             return Response({
                 'error': 'Failed to get statistics',
+                'details': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+class GmailEmailCountView(APIView):
+    permission_classes = [IsAuthenticated]
+    
+    def get(self, request):
+        """Get accurate email count for a query"""
+        try:
+            query = request.GET.get('q', '')
+            
+            if not query.strip():
+                return Response({
+                    'error': 'Query (q) parameter is required'
+                }, status=status.HTTP_400_BAD_REQUEST)
+            
+            gmail_ops = GmailOperations(request.user)
+            
+            # Use Gmail's quick estimate for better UX
+            result = gmail_ops.get_quick_email_estimate(query)
+            
+            if 'error' in result:
+                return Response(result, status=status.HTTP_400_BAD_REQUEST)
+            
+            return Response({
+                'count': result['count'],
+                'is_estimate': result.get('is_estimate', True),
+                'query': query
+            })
+            
+        except Exception as e:
+            logger.error(f"Count API error for user {request.user.username}: {e}")
+            return Response({
+                'error': 'Failed to count emails',
                 'details': str(e)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

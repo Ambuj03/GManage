@@ -57,6 +57,16 @@ export interface Email {
   size: number;
 }
 
+export interface EmailItem {
+  id: string;
+  from: string;
+  subject: string;
+  date: string;
+  snippet: string;
+  size_estimate: number;
+  labels: string[];
+}
+
 export interface GmailLabel {
   id: string;
   name: string;
@@ -66,18 +76,17 @@ export interface GmailLabel {
 }
 
 export interface EmailSearchParams {
-  query?: string;
+  q?: string;           // Changed from 'query' to 'q' to match backend
   page?: number;
   page_size?: number;
   label_ids?: string[];
 }
 
 export interface EmailSearchResponse {
-  emails: Email[];
-  total_count: number;
-  page: number;
-  page_size: number;
-  total_pages: number;
+  results: EmailItem[];  // Changed from 'emails' to 'results'
+  count: number;         // Changed from 'total_count' to 'count'
+  next: string | null;   // Added for pagination
+  previous: string | null; // Added for pagination
 }
 
 // Bulk Operations
@@ -86,18 +95,21 @@ export interface BulkDeleteRequest {
 }
 
 export interface DeleteByQueryRequest {
-  query: string;
+  q: string;  // Changed from 'query' to 'q' to match backend
+  label_ids?: string[];
   limit?: number;
 }
 
+// FIXED PREVIEW INTERFACES
 export interface PreviewRequest {
-  search_query: string;
-  sample_size?: number;
+  q: string;  // Changed from 'search_query' to 'q' to match backend
+  label_ids?: string[];
+  max_results?: number;  // Changed from 'sample_size' to 'max_results'
 }
 
 export interface PreviewResponse {
-  emails: Email[];
-  total_count: number;
+  emails: EmailItem[];  // Changed from Email[] to EmailItem[]
+  total_estimate: number;  // Changed from 'total_count' to 'total_estimate'
   sample_count: number;
   estimated_deletion_time?: string;
 }
@@ -125,4 +137,11 @@ export interface TaskStatus {
 export interface ApiError {
   detail?: string;
   [key: string]: any;
+}
+
+export interface EmailCountResponse {
+  count: number;
+  is_estimate: boolean;
+  query: string;
+  max_count: number;
 }
