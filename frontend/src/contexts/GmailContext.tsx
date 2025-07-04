@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { GoogleOAuthStatus } from '../types/api';
+import { GoogleOAuthStatus } from '../types/interfaces';
 import { apiService } from '../services/api';
 import { useAuth } from './AuthContext';
 

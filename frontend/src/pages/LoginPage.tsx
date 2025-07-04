@@ -11,7 +11,7 @@ import {
   Divider,
   Link,
 } from '@mui/material';
-import { LoginRequest, RegisterRequest } from '../types/api';
+import { LoginRequest, RegisterRequest } from '../types/interfaces';
 import { useAuth } from '../contexts/AuthContext';
 
 type AuthMode = 'login' | 'register';

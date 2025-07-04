@@ -48,4 +48,7 @@ urlpatterns = [
     path('gmail/undo/<str:undo_id>/', views.UndoOperationView.as_view(), name='execute_undo'),
     path('gmail/stats/', views.EmailStatsView.as_view(), name='email_stats'),
 
+    # New endpoint for Gmail email count
+    path('gmail/count/', views.GmailEmailCountView.as_view(), name='gmail_email_count'),
+
 ]

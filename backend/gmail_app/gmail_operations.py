@@ -127,35 +127,70 @@ class GmailOperations:
             logger.error(f"Unexpected error getting email metadata for user {self.user.username}: {e}")
             return {'error': {'message': str(e), 'type': 'unknown'}}
     
-    def search_emails(self, search_query, max_results=100):
+    def search_emails(self, query, max_results=20, page_token=None):
         """Search emails using Gmail query syntax"""
         try:
-            # Common search patterns
-            search_patterns = {
-                'older_than': lambda days: f'older_than:{days}d',
-                'larger_than': lambda size: f'larger:{size}M',
-                'from_sender': lambda email: f'from:{email}',
-                'has_attachment': 'has:attachment',
-                'is_unread': 'is:unread',
-                'is_read': '-is:unread',
-                'in_trash': 'in:trash',
-                'in_spam': 'in:spam'
+            service = self.service_manager.get_service()
+            if not service:
+                return {'error': 'Gmail service not available'}
+            
+            # Get message list
+            request_params = {
+                'userId': 'me',
+                'q': query,
+                'maxResults': max_results
             }
             
-            result = self.list_emails(query=search_query, max_results=max_results)
+            if page_token:
+                request_params['pageToken'] = page_token
             
-            if 'error' in result:
-                return result
+            result = service.users().messages().list(**request_params).execute()
             
-            # Add search context
-            result['search_query'] = search_query
-            result['search_patterns_available'] = list(search_patterns.keys())
+            messages = result.get('messages', [])
+            next_page_token = result.get('nextPageToken')
+            result_size_estimate = result.get('resultSizeEstimate', 0)
             
-            return result
+            # Get detailed message information
+            detailed_messages = []
+            for msg in messages:
+                try:
+                    message = service.users().messages().get(
+                        userId='me', 
+                        id=msg['id'],
+                        format='metadata',
+                        metadataHeaders=['From', 'To', 'Subject', 'Date']
+                    ).execute()
+                    
+                    # Extract headers
+                    headers = {}
+                    for header in message.get('payload', {}).get('headers', []):
+                        headers[header['name']] = header['value']
+                    
+                    detailed_messages.append({
+                        'id': message['id'],
+                        'threadId': message['threadId'],
+                        'labelIds': message.get('labelIds', []),
+                        'snippet': message.get('snippet', ''),
+                        'from': headers.get('From', 'Unknown'),
+                        'to': headers.get('To', 'Unknown'),
+                        'subject': headers.get('Subject', 'No Subject'),
+                        'date': headers.get('Date', 'Unknown'),
+                        'sizeEstimate': message.get('sizeEstimate', 0)
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to get message details for {msg['id']}: {e}")
+                    continue
+            
+            return {
+                'messages': detailed_messages,
+                'nextPageToken': next_page_token,
+                'resultSizeEstimate': result_size_estimate,
+                'query': query
+            }
             
         except Exception as e:
-            logger.error(f"Search error for user {self.user.username}: {e}")
-            return {'error': {'message': str(e), 'type': 'search_error'}}
+            logger.error(f"Search emails error: {e}")
+            return {'error': str(e)}
     
     def get_labels(self):
         """Get all Gmail labels"""
@@ -189,6 +224,91 @@ class GmailOperations:
         except Exception as e:
             logger.error(f"Unexpected error getting labels for user {self.user.username}: {e}")
             return {'error': {'message': str(e), 'type': 'unknown'}}
+    
+    def get_accurate_email_count(self, query, max_count=10000):
+        """Get accurate email count by actually fetching pages"""
+        try:
+            service = self.service_manager.get_service()
+            if not service:
+                return {'error': 'Gmail service not available'}
+            
+            total_count = 0
+            page_token = None
+            pages_checked = 0
+            max_pages = 50  # Increased from 20 to 50 pages
+            
+            while pages_checked < max_pages:
+                try:
+                    result = service.users().messages().list(
+                        userId='me',
+                        q=query,
+                        maxResults=500,  # Max per page
+                        pageToken=page_token
+                    ).execute()
+                    
+                    messages = result.get('messages', [])
+                    if not messages:
+                        break
+                    
+                    total_count += len(messages)
+                    pages_checked += 1
+                    
+                    # FIXED: Don't stop at max_count, continue until we hit pages limit
+                    # This way we get more accurate counts
+                    
+                    page_token = result.get('nextPageToken')
+                    if not page_token:
+                        # No more pages - we have the exact count
+                        return {'count': total_count, 'is_estimate': False}
+                        
+                except Exception as e:
+                    logger.error(f"Error getting email count: {e}")
+                    break
+            
+            # If we hit the page limit, it's an estimate
+            is_estimate = pages_checked >= max_pages
+            return {'count': total_count, 'is_estimate': is_estimate}
+            
+        except Exception as e:
+            logger.error(f"Count emails error: {e}")
+            return {'error': str(e)}
+    
+    def get_quick_email_estimate(self, query):
+        """Get quick estimate using Gmail's built-in resultSizeEstimate with sampling"""
+        try:
+            service = self.service_manager.get_service()
+            if not service:
+                return {'error': 'Gmail service not available'}
+            
+            # Get Gmail's estimate
+            result = service.users().messages().list(
+                userId='me',
+                q=query,
+                maxResults=1
+            ).execute()
+            
+            estimate = result.get('resultSizeEstimate', 0)
+            
+            # For small numbers, get exact count
+            if estimate <= 100:
+                # Get a few pages to verify
+                exact_result = service.users().messages().list(
+                    userId='me',
+                    q=query,
+                    maxResults=100
+                ).execute()
+                
+                messages = exact_result.get('messages', [])
+                if len(messages) < 100:
+                    return {'count': len(messages), 'is_estimate': False}
+                else:
+                    return {'count': estimate, 'is_estimate': True}
+            
+            return {'count': estimate, 'is_estimate': True}
+            
+        except Exception as e:
+            logger.error(f"Quick estimate error: {e}")
+            return {'error': str(e)}
 
 def build_search_query(filters):
     """Build Gmail search query from filter parameters"""

@@ -6,19 +6,17 @@ import {
   Button,
   Card,
   CardContent,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
+  Alert,
   Stack,
   Chip,
-  Alert,
+  CircularProgress,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
-  Search as SearchIcon,
+  Construction as ConstructionIcon,
   Email as EmailIcon,
+  Search as SearchIcon,
+  FilterList as FilterIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useGmail } from '../contexts/GmailContext';
@@ -26,9 +24,6 @@ import { useGmail } from '../contexts/GmailContext';
 const EmailManagement: React.FC = () => {
   const navigate = useNavigate();
   const { isConnected } = useGmail();
-  
-  const [searchQuery, setSearchQuery] = useState('');
-  const [selectedLabel, setSelectedLabel] = useState('');
   
   // Redirect if not connected
   useEffect(() => {
@@ -42,7 +37,7 @@ const EmailManagement: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="lg">
+    <Container maxWidth="xl">
       <Box sx={{ py: 4 }}>
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 4 }}>
@@ -58,64 +53,98 @@ const EmailManagement: React.FC = () => {
           </Typography>
         </Box>
 
-        {/* Search and Filters */}
+        {/* Coming Soon Section */}
         <Card sx={{ mb: 3 }}>
           <CardContent>
-            <Typography variant="h6" gutterBottom>
-              Search & Filter Emails
-            </Typography>
-            <Stack spacing={2}>
-              <TextField
-                fullWidth
-                label="Search emails"
-                placeholder="Enter search terms (e.g., from:sender@example.com, subject:important)"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                InputProps={{
-                  startAdornment: <SearchIcon sx={{ mr: 1, color: 'text.secondary' }} />
-                }}
-              />
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: 'column', 
+              alignItems: 'center',
+              py: 8,
+              textAlign: 'center'
+            }}>
+              <ConstructionIcon sx={{ fontSize: 80, color: 'primary.main', mb: 3 }} />
               
-              <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
-                <FormControl sx={{ minWidth: 200 }}>
-                  <InputLabel>Label</InputLabel>
-                  <Select
-                    value={selectedLabel}
-                    label="Label"
-                    onChange={(e) => setSelectedLabel(e.target.value)}
-                  >
-                    <MenuItem value="">All Labels</MenuItem>
-                    <MenuItem value="INBOX">Inbox</MenuItem>
-                    <MenuItem value="SENT">Sent</MenuItem>
-                    <MenuItem value="DRAFT">Drafts</MenuItem>
-                    <MenuItem value="SPAM">Spam</MenuItem>
-                    <MenuItem value="TRASH">Trash</MenuItem>
-                  </Select>
-                </FormControl>
-                
-                <Button
-                  variant="contained"
-                  startIcon={<SearchIcon />}
-                  onClick={() => {/* Implement search */}}
-                >
-                  Search Emails
-                </Button>
-              </Box>
-            </Stack>
+              <Typography variant="h4" gutterBottom color="primary">
+                Coming Soon!
+              </Typography>
+              
+              <Typography variant="h6" color="text.secondary" sx={{ mb: 4, maxWidth: 600 }}>
+                Advanced email search and management features are currently under development
+              </Typography>
+              
+              <Stack direction="row" spacing={2} sx={{ mb: 4 }}>
+                <Chip 
+                  icon={<SearchIcon />} 
+                  label="Gmail Search" 
+                  variant="outlined" 
+                  color="primary"
+                />
+                <Chip 
+                  icon={<FilterIcon />} 
+                  label="Advanced Filters" 
+                  variant="outlined" 
+                  color="primary"
+                />
+                <Chip 
+                  icon={<EmailIcon />} 
+                  label="Email Preview" 
+                  variant="outlined" 
+                  color="primary"
+                />
+              </Stack>
+              
+              <Alert severity="info" sx={{ maxWidth: 500 }}>
+                <Typography variant="body2">
+                  We're working hard to bring you powerful email management tools. 
+                  In the meantime, you can use the <strong>Bulk Operations</strong> feature 
+                  to manage your emails in bulk.
+                </Typography>
+              </Alert>
+            </Box>
           </CardContent>
         </Card>
 
-        {/* Email List Placeholder */}
+        {/* Navigation to Available Features */}
         <Card>
           <CardContent>
             <Typography variant="h6" gutterBottom>
-              Email Results
+              Available Features
             </Typography>
-            <Alert severity="info">
-              Email search and management features will be implemented in Phase 3B.
-              <br />
-              <strong>Coming soon:</strong> Email list, bulk selection, delete/recover actions.
-            </Alert>
+            
+            <Box sx={{ 
+              display: 'flex', 
+              flexDirection: { xs: 'column', sm: 'row' },
+              gap: 2,
+              mt: 2
+            }}>
+              <Button
+                variant="contained"
+                size="large"
+                onClick={() => navigate('/bulk-operations')}
+                sx={{ flex: 1 }}
+              >
+                Bulk Operations
+              </Button>
+              
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={() => navigate('/recovery-tools')}
+                sx={{ flex: 1 }}
+              >
+                Recovery Tools
+              </Button>
+              
+              <Button
+                variant="outlined"
+                size="large"
+                onClick={() => navigate('/dashboard')}
+                sx={{ flex: 1 }}
+              >
+                Dashboard
+              </Button>
+            </Box>
           </CardContent>
         </Card>
       </Box>

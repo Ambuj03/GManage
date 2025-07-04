@@ -16,34 +16,29 @@ import {
   Email as EmailIcon,
   Refresh as RefreshIcon,
   DeleteForever as DeleteIcon,
-  RestoreFromTrash as RestoreIcon,
   Security as SecurityIcon,
-  Storage as StorageIcon,
   ConnectWithoutContact as ConnectIcon,
-  Link as LinkOffIcon,
+  LinkOff as LinkOffIcon,
+  ArrowForward as ArrowIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../contexts/AuthContext';
 import { useGmail } from '../contexts/GmailContext';
 import { apiService } from '../services/api';
-import { useNavigate } from 'react-router-dom'; // Add this import
+import { useNavigate } from 'react-router-dom';
 
 interface EmailStats {
   total_emails: number;
   total_threads: number;
-  total_size_mb: number;
-  labels_count: number;
-  last_checked?: string;
 }
 
 interface ConnectivityStatus {
   status: string;
   connected: boolean;
-  response_time?: number;
-  last_checked?: string;
+  last_checked: string;
 }
 
 const Dashboard: React.FC = () => {
-  const navigate = useNavigate(); // Add this hook
+  const navigate = useNavigate();
   const { user, logout } = useAuth();
   const { 
     oauthStatus, 
@@ -61,7 +56,7 @@ const Dashboard: React.FC = () => {
   const [connectivityLoading, setConnectivityLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Fetch email statistics - DISABLED for now
+  // Fetch email statistics
   const fetchEmailStats = async () => {
     if (!isConnected) return;
     
@@ -69,15 +64,10 @@ const Dashboard: React.FC = () => {
     setError(null);
     
     try {
-      // const stats = await apiService.getEmailStats(); // DISABLED - API not ready
-      // setEmailStats(stats);
-      
-      // Mock data for now
+      // Mock data for now - can be replaced with real API call later
       setEmailStats({
-        total_emails: 0,
-        total_threads: 0,
-        total_size_mb: 0,
-        labels_count: 0
+        total_emails: oauthStatus?.gmail_info?.messages_total || 0,
+        total_threads: oauthStatus?.gmail_info?.threads_total || 0
       });
     } catch (err: any) {
       console.error('Email stats error:', err);
@@ -156,13 +146,6 @@ const Dashboard: React.FC = () => {
     return num.toString();
   };
 
-  // Format file size
-  const formatSize = (mb: number | undefined | null): string => {
-    if (mb === undefined || mb === null || isNaN(mb)) return 'N/A';
-    if (mb >= 1024) return `${(mb / 1024).toFixed(1)} GB`;
-    return `${mb.toFixed(1)} MB`;
-  };
-
   return (
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
@@ -170,7 +153,7 @@ const Dashboard: React.FC = () => {
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
           <Box>
             <Typography variant="h4" component="h1" gutterBottom>
-              Gmail Purge Dashboard
+              Gmail Bulk Manager
             </Typography>
             <Typography variant="subtitle1" color="text.secondary">
               Welcome back, {user?.username}!
@@ -244,31 +227,18 @@ const Dashboard: React.FC = () => {
             {/* OAuth Details */}
             {oauthStatus && isConnected && (
               <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                  <Typography variant="body2" color="text.secondary">
-                    Email: {oauthStatus.gmail_info?.email_address || 'Loading...'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Connected: {oauthStatus.created_at ? new Date(oauthStatus.created_at).toLocaleDateString() : 'Unknown'}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Scopes: {oauthStatus.scopes?.length || 0} permissions granted
-                  </Typography>
-                </Box>
+                <Typography variant="body2" color="text.secondary">
+                  <strong>Account:</strong> Connected
+                </Typography>
               </Box>
             )}
           </CardContent>
         </Card>
 
-        {/* Gmail Statistics - Only show when connected */}
+        {/* Email Statistics - Only show basic stats */}
         {isConnected && (
-          <Box sx={{ mb: 3 }}>
-            <Box sx={{ 
-              display: 'grid', 
-              gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: 'repeat(4, 1fr)' },
-              gap: 3 
-            }}>
-              {/* Email Count */}
+          <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
+            <Box sx={{ flex: 1 }}>
               <Card>
                 <CardContent sx={{ textAlign: 'center' }}>
                   <EmailIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
@@ -281,8 +251,9 @@ const Dashboard: React.FC = () => {
                   </Typography>
                 </CardContent>
               </Card>
+            </Box>
 
-              {/* Thread Count */}
+            <Box sx={{ flex: 1 }}>
               <Card>
                 <CardContent sx={{ textAlign: 'center' }}>
                   <EmailIcon sx={{ fontSize: 40, color: 'secondary.main', mb: 1 }} />
@@ -295,75 +266,32 @@ const Dashboard: React.FC = () => {
                   </Typography>
                 </CardContent>
               </Card>
-
-              {/* Storage Used */}
-              <Card>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <StorageIcon sx={{ fontSize: 40, color: 'warning.main', mb: 1 }} />
-                  <Typography variant="h4" component="div">
-                    {statsLoading ? <CircularProgress size={24} /> : 
-                     formatSize(emailStats?.total_size_mb)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Storage Used
-                  </Typography>
-                </CardContent>
-              </Card>
-
-              {/* Labels Count */}
-              <Card>
-                <CardContent sx={{ textAlign: 'center' }}>
-                  <SecurityIcon sx={{ fontSize: 40, color: 'info.main', mb: 1 }} />
-                  <Typography variant="h4" component="div">
-                    {statsLoading ? <CircularProgress size={24} /> : 
-                     formatNumber(emailStats?.labels_count)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Labels
-                  </Typography>
-                </CardContent>
-              </Card>
             </Box>
           </Box>
         )}
 
-        {/* Quick Actions - Only show when connected */}
+        {/* Main Action - Bulk Delete */}
         {isConnected && (
           <Card sx={{ mb: 3 }}>
             <CardContent>
-              <Typography variant="h6" gutterBottom>
-                Quick Actions
-              </Typography>
-              <Box sx={{ 
-                display: 'grid', 
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' },
-                gap: 2 
-              }}>
+              <Box sx={{ textAlign: 'center', py: 3 }}>
+                <DeleteIcon sx={{ fontSize: 60, color: 'error.main', mb: 2 }} />
+                <Typography variant="h5" gutterBottom>
+                  Bulk Email Management
+                </Typography>
+                <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+                  Clean up your inbox by deleting emails in bulk by category and age
+                </Typography>
                 <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<EmailIcon />}
-                  onClick={() => navigate('/emails')}
-                >
-                  Manage Emails
-                </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
+                  variant="contained"
+                  size="large"
                   startIcon={<DeleteIcon />}
-                  color="warning"
+                  endIcon={<ArrowIcon />}
                   onClick={() => navigate('/bulk-operations')}
+                  color="error"
+                  sx={{ px: 4, py: 1.5 }}
                 >
-                  Bulk Delete
-                </Button>
-                <Button
-                  fullWidth
-                  variant="outlined"
-                  startIcon={<RestoreIcon />}
-                  color="info"
-                  onClick={() => navigate('/recovery')}
-                >
-                  Recovery Tools
+                  Start Bulk Delete
                 </Button>
               </Box>
             </CardContent>
@@ -414,7 +342,7 @@ const Dashboard: React.FC = () => {
                 Connect your Gmail account
               </Typography>
               <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
-                To get started, connect your Gmail account to enable email management features.
+                To get started, connect your Gmail account to enable bulk email management.
               </Typography>
               <Button
                 variant="contained"
