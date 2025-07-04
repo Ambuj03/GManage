@@ -150,7 +150,14 @@ const Dashboard: React.FC = () => {
     <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
         {/* Header */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 4 }}>
+        <Box sx={{ 
+          display: 'flex', 
+          flexDirection: { xs: 'column', sm: 'row' },
+          justifyContent: 'space-between', 
+          alignItems: { xs: 'flex-start', sm: 'center' }, 
+          mb: 4,
+          gap: { xs: 2, sm: 0 }
+        }}>
           <Box>
             <Typography variant="h4" component="h1" gutterBottom>
               Gmail Bulk Manager
@@ -167,7 +174,7 @@ const Dashboard: React.FC = () => {
             >
               <RefreshIcon />
             </IconButton>
-            <Button variant="outlined" onClick={logout}>
+            <Button variant="outlined" onClick={logout} size="small">
               Logout
             </Button>
           </Stack>
@@ -183,46 +190,71 @@ const Dashboard: React.FC = () => {
         {/* Gmail Connection Status */}
         <Card sx={{ mb: 3 }}>
           <CardContent>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            {gmailLoading ? (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <SecurityIcon color={isConnected ? 'success' : 'disabled'} />
-                <Box>
-                  <Typography variant="h6">
-                    Gmail Connection
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {isConnected ? 'Connected and authenticated' : 'Not connected'}
-                  </Typography>
+                <CircularProgress size={24} />
+                <Typography variant="body1">
+                  Checking Gmail connection...
+                </Typography>
+              </Box>
+            ) : (
+              <Box sx={{ 
+                display: 'flex', 
+                flexDirection: { xs: 'column', sm: 'row' },
+                justifyContent: 'space-between', 
+                alignItems: { xs: 'flex-start', sm: 'center' },
+                gap: { xs: 2, sm: 0 }
+              }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+                  <SecurityIcon color={isConnected ? 'success' : 'disabled'} />
+                  <Box>
+                    <Typography variant="h6">
+                      Gmail Connection
+                    </Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {isConnected ? 'Connected and authenticated' : 'Not connected'}
+                    </Typography>
+                  </Box>
+                </Box>
+                
+                <Box sx={{ 
+                  display: 'flex', 
+                  flexDirection: { xs: 'column', sm: 'row' },
+                  alignItems: { xs: 'stretch', sm: 'center' }, 
+                  gap: 2,
+                  width: { xs: '100%', sm: 'auto' }
+                }}>
+                  <Chip
+                    label={isConnected ? 'Connected' : 'Disconnected'}
+                    color={isConnected ? 'success' : 'default'}
+                    icon={isConnected ? <ConnectIcon /> : <LinkOffIcon />}
+                  />
+                  
+                  {isConnected ? (
+                    <Button 
+                      variant="outlined" 
+                      color="error"
+                      onClick={handleDisconnect}
+                      disabled={gmailLoading}
+                      size="small"
+                      sx={{ minWidth: { xs: '100%', sm: 'auto' } }}
+                    >
+                      Disconnect
+                    </Button>
+                  ) : (
+                    <Button 
+                      variant="contained" 
+                      onClick={handleConnect}
+                      disabled={gmailLoading}
+                      size="small"
+                      sx={{ minWidth: { xs: '100%', sm: 'auto' } }}
+                    >
+                      Connect Gmail
+                    </Button>
+                  )}
                 </Box>
               </Box>
-              
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-                <Chip
-                  label={isConnected ? 'Connected' : 'Disconnected'}
-                  color={isConnected ? 'success' : 'default'}
-                  icon={isConnected ? <ConnectIcon /> : <LinkOffIcon />}
-                />
-                
-                {isConnected ? (
-                  <Button 
-                    variant="outlined" 
-                    color="error"
-                    onClick={handleDisconnect}
-                    disabled={gmailLoading}
-                  >
-                    Disconnect
-                  </Button>
-                ) : (
-                  <Button 
-                    variant="contained" 
-                    onClick={handleConnect}
-                    disabled={gmailLoading}
-                  >
-                    Connect Gmail
-                  </Button>
-                )}
-              </Box>
-            </Box>
+            )}
 
             {/* OAuth Details */}
             {oauthStatus && isConnected && (
@@ -237,7 +269,12 @@ const Dashboard: React.FC = () => {
 
         {/* Email Statistics - Only show basic stats */}
         {isConnected && (
-          <Box sx={{ display: 'flex', gap: 3, mb: 3 }}>
+          <Box sx={{ 
+            display: 'flex', 
+            flexDirection: { xs: 'column', sm: 'row' },
+            gap: 3, 
+            mb: 3 
+          }}>
             <Box sx={{ flex: 1 }}>
               <Card>
                 <CardContent sx={{ textAlign: 'center' }}>

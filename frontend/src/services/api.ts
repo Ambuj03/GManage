@@ -239,26 +239,6 @@ class ApiService {
     return response.data;
   }
 
-  async previewEmails(request: PreviewRequest): Promise<PreviewResponse> {
-    const response = await this.api.post<PreviewResponse>('/gmail/preview/', request);
-    return response.data;
-  }
-
-  async getDeletionRules(): Promise<DeletionRule[]> {
-    const response = await this.api.get<DeletionRule[]>('/gmail/rules/');
-    return response.data;
-  }
-
-  async createDeletionRule(rule: Omit<DeletionRule, 'id' | 'created_at' | 'last_executed'>): Promise<DeletionRule> {
-    const response = await this.api.post<DeletionRule>('/gmail/rules/', rule);
-    return response.data;
-  }
-
-  async executeRule(ruleId: number): Promise<TaskStatus> {
-    const response = await this.api.post<TaskStatus>(`/gmail/rules/${ruleId}/execute/`);
-    return response.data;
-  }
-
   async getTaskStatus(taskId: string): Promise<TaskStatus> {
     const response = await this.api.get<TaskStatus>(`/tasks/${taskId}/`);
     return response.data;

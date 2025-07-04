@@ -10,9 +10,7 @@ import { ThemeToggle } from './components/ThemeToggle';
 import LoginPage from './pages/LoginPage';
 import Dashboard from './pages/Dashboard';
 import OAuthCallback from './pages/OAuthCallback';
-import EmailManagement from './pages/EmailManagement';
 import BulkOperations from './pages/BulkOperations';
-import RecoveryTools from './pages/RecoveryTools';
 
 // Create a query client
 const queryClient = new QueryClient({
@@ -52,14 +50,6 @@ const AppRoutes: React.FC = () => {
           }
         />
         <Route
-          path="/emails"
-          element={
-            <ProtectedRoute>
-              <EmailManagement />
-            </ProtectedRoute>
-          }
-        />
-        <Route
           path="/bulk-operations"
           element={
             <ProtectedRoute>
@@ -67,35 +57,27 @@ const AppRoutes: React.FC = () => {
             </ProtectedRoute>
           }
         />
-        <Route
-          path="/recovery"
-          element={
-            <ProtectedRoute>
-              <RecoveryTools />
-            </ProtectedRoute>
-          }
-        />
         <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="*" element={<Navigate to="/dashboard" replace />} />
       </Routes>
     </Box>
   );
 };
 
-// Main App Component - FIXED ROUTER CONTEXT ISSUE
-const App: React.FC = () => {
+function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeContextProvider>
-        <Router>
-          <AuthProvider>
-            <GmailProvider>
+        <AuthProvider>
+          <GmailProvider>
+            <Router>
               <AppRoutes />
-            </GmailProvider>
-          </AuthProvider>
-        </Router>
+            </Router>
+          </GmailProvider>
+        </AuthProvider>
       </ThemeContextProvider>
     </QueryClientProvider>
   );
-};
+}
 
 export default App;
