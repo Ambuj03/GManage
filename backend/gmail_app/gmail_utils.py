@@ -191,3 +191,58 @@ def retry_gmail_operation(func, max_retries=3, delay=1):
             raise
     
     raise Exception(f"Operation failed after {max_retries} attempts")
+
+def get_credentials_for_user(user):
+    try:
+        token = GoogleOAuthToken.objects.get(user=user)
+
+        credentials = Credentials(
+            token=token.access_token,
+            refresh_token=token.refresh_token,
+            token_uri=token.token_uri,
+            client_id=token.client_id,
+            client_secret=token.client_secret,
+            scopes=token.scopes
+        )
+
+        # Enhanced token refresh with better error handling
+        if credentials.expired and credentials.refresh_token:
+            try:
+                logger.info(f"Refreshing expired token for user {user.username}")
+                credentials.refresh(Request())
+                
+                # Update stored token
+                token.access_token = credentials.token
+                if credentials.expiry:
+                    token.expiry = credentials.expiry
+                token.save()
+                
+                logger.info(f"Token refreshed successfully for user {user.username}")
+                
+            except RefreshError as e:
+                # Only handle actual auth failures (invalid refresh token)
+                if 'invalid_grant' in str(e) or 'refresh_token' in str(e).lower():
+                    logger.error(f"Refresh token invalid for user {user.username}: {e}")
+                    # Delete invalid tokens
+                    token.delete()
+                    return None
+                else:
+                    # Temporary network/server error - retry later
+                    logger.warning(f"Temporary refresh error for user {user.username}: {e}")
+                    # Return current credentials - may still work for a short time
+                    return credentials
+                    
+            except Exception as e:
+                # Network or other temporary errors
+                logger.warning(f"Token refresh failed (temporary) for user {user.username}: {e}")
+                # Return current credentials - may still work
+                return credentials
+        
+        return credentials
+    
+    except GoogleOAuthToken.DoesNotExist:
+        logger.warning(f"No OAuth token found for user {user.username}")
+        return None
+    except Exception as e:
+        logger.error(f"Error getting credentials for user {user.username}: {e}")
+        return None

@@ -312,16 +312,12 @@ const BulkOperations: React.FC = React.memo(() => {
       return 'No internet connection. Please check your network and try again.';
     }
     
-    if (error.code === 'NETWORK_ERROR') {
-      return 'Network error occurred. Please check your connection and try again.';
+    if (error.response?.status === 401) {
+      return 'Gmail authentication expired. Please reconnect your Gmail account from the Dashboard.';
     }
     
     if (error.response?.status === 429) {
       return 'Too many requests. Please wait a moment and try again.';
-    }
-    
-    if (error.response?.status === 401) {
-      return 'Authentication expired. Please reconnect your Gmail account.';
     }
     
     if (error.response?.status >= 500) {
