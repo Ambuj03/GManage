@@ -19,17 +19,17 @@ from datetime import timedelta
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
-
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = 'django-insecure-@&fwou6y0^w1-(c5zg4pb$$_@#p2#qhit4($rpwmqey)u1n8=w'
+SECRET_KEY = os.environ.get('SECRET_KEY')
+DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
 
-ALLOWED_HOSTS = ['127.0.0.1', 'localhost']
+ALLOWED_HOSTS = [
+    '127.0.0.1', 
+    'localhost',
+    'your-ec2-domain.amazonaws.com',  # Add your actual domain
+    'your-custom-domain.com'  # If you have one
+]
 
 
 # Application definition
@@ -81,14 +81,17 @@ WSGI_APPLICATION = 'gmail_purge_backend.wsgi.application'
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# Use environment-based database config
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': 'django.db.backends.mysql',
+        'NAME': os.environ.get('DB_NAME', 'gmail_purge'),
+        'USER': os.environ.get('DB_USER', ''),
+        'PASSWORD': os.environ.get('DB_PASSWORD', ''),
+        'HOST': os.environ.get('DB_HOST', 'localhost'),
+        'PORT': os.environ.get('DB_PORT', '3306'),  
     }
 }
-
-
 # Password validation
 # https://docs.djangoproject.com/en/5.2/ref/settings/#auth-password-validators
 
@@ -124,6 +127,10 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
+
+
+STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # Where collected static files go
+STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -204,8 +211,8 @@ CELERY_RESULT_EXPIRES = 3600
 #For react testinggg
 # Add CORS settings
 CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+    "https://your-frontend-domain.com",  # Replace with actual domain
+    "http://localhost:3000",  # Keep for dev
 ]
 
 # For development only - you can use this instead of CORS_ALLOWED_ORIGINS
@@ -228,3 +235,10 @@ CORS_ALLOW_HEADERS = [
 
 
 FRONTEND_URL = 'http://localhost:3000'
+
+
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_BROWSER_XSS_FILTER = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = 'DENY'
