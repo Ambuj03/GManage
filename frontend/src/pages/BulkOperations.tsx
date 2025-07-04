@@ -6,10 +6,6 @@ import {
   Button,
   Card,
   CardContent,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
   Stack,
   Alert,
   Dialog,
@@ -18,7 +14,10 @@ import {
   DialogActions,
   LinearProgress,
   TextField,
-  Slider,
+  Paper,
+  Divider,
+  Chip,
+  Fade,
 } from '@mui/material';
 import {
   ArrowBack as BackIcon,
@@ -28,6 +27,9 @@ import {
   CheckCircle as SuccessIcon,
   Error as ErrorIcon,
   Info as InfoIcon,
+  Visibility as PreviewIcon,
+  PlayArrow as ExecuteIcon,
+  Schedule as ScheduleIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useGmail } from '../contexts/GmailContext';
@@ -35,20 +37,50 @@ import { apiService } from '../services/api';
 import { TaskStatus } from '../types/interfaces';
 
 const TIME_PERIODS = [
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
-  { value: '90d', label: '3 months' },
-  { value: '180d', label: '6 months' },
-  { value: '1y', label: '1 year' },
-  { value: '2y', label: '2 years' },
+  { value: '7d', label: '7 days', description: 'Emails older than 7 days' },
+  { value: '30d', label: '30 days', description: 'Emails older than 30 days' },
+  { value: '90d', label: '3 months', description: 'Emails older than 3 months' },
+  { value: '180d', label: '6 months', description: 'Emails older than 6 months' },
+  { value: '1y', label: '1 year', description: 'Emails older than 1 year' },
+  { value: '2y', label: '2 years', description: 'Emails older than 2 years' },
 ];
 
 const EMAIL_CATEGORIES = [
-  { value: 'category:promotions', label: 'Promotions', icon: '🏷️' },
-  { value: 'category:updates', label: 'Updates', icon: '📄' },
-  { value: 'category:social', label: 'Social', icon: '👥' },
-  { value: 'category:forums', label: 'Forums', icon: '💬' },
-  { value: 'in:spam', label: 'Spam', icon: '🚫' },
+  { 
+    value: 'category:promotions', 
+    label: 'Promotions', 
+    icon: '🏷️',
+    description: 'Marketing emails, deals, and promotional content',
+    color: 'warning' as const
+  },
+  { 
+    value: 'category:updates', 
+    label: 'Updates', 
+    icon: '📄',
+    description: 'Newsletters, notifications, and updates',
+    color: 'info' as const
+  },
+  { 
+    value: 'category:social', 
+    label: 'Social', 
+    icon: '👥',
+    description: 'Social media notifications and updates',
+    color: 'primary' as const
+  },
+  { 
+    value: 'category:forums', 
+    label: 'Forums', 
+    icon: '💬',
+    description: 'Forum posts and community discussions',
+    color: 'secondary' as const
+  },
+  { 
+    value: 'in:spam', 
+    label: 'Spam', 
+    icon: '🚫',
+    description: 'Spam and unwanted emails',
+    color: 'error' as const
+  },
 ];
 
 const QUICK_AMOUNTS = [
@@ -69,7 +101,8 @@ const BulkOperations: React.FC = () => {
   const [emailCount, setEmailCount] = useState(1000);
   const [operation, setOperation] = useState<'delete' | 'recover'>('delete');
   
-  // Execution state
+  // UI state
+  const [activeStep, setActiveStep] = useState(0);
   const [executeOpen, setExecuteOpen] = useState(false);
   const [executing, setExecuting] = useState(false);
   const [currentTask, setCurrentTask] = useState<TaskStatus | null>(null);
@@ -89,6 +122,7 @@ const BulkOperations: React.FC = () => {
   useEffect(() => {
     setError(null);
     setSuccess(null);
+    setActiveStep(0);
   }, [operation]);
 
   // Poll task status
@@ -122,20 +156,15 @@ const BulkOperations: React.FC = () => {
     };
   }, [currentTask]);
 
-  // FIXED: Generate query based on selection
+  // Generate query based on selection
   const generateQuery = (): string => {
     const parts: string[] = [];
     
     if (selectedCategory) {
       if (operation === 'recover') {
-        // For recover, search in trash only
         parts.push('in:trash');
-        // Note: Gmail doesn't support older_than with in:trash reliably
-        // So we'll recover recent emails from trash
       } else {
-        // For delete, search normally with category
         parts.push(selectedCategory);
-        // Add time filter for delete operations
         if (selectedTimePeriod) {
           parts.push(`older_than:${selectedTimePeriod}`);
         }
@@ -162,8 +191,6 @@ const BulkOperations: React.FC = () => {
         q: query, 
         max_emails: emailCount 
       };
-      
-      console.log('Executing with params:', params); // Debug log
       
       const response = operation === 'delete' 
         ? await apiService.bulkDeleteByQuery(params)
@@ -195,7 +222,7 @@ const BulkOperations: React.FC = () => {
   }
 
   return (
-    <Container maxWidth="md">
+    <Container maxWidth="lg">
       <Box sx={{ py: 4 }}>
         {/* Header */}
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 4 }}>
@@ -207,113 +234,215 @@ const BulkOperations: React.FC = () => {
             Back to Dashboard
           </Button>
           <Typography variant="h4" component="h1">
-            Bulk Operations
+            Bulk Email Operations
           </Typography>
         </Box>
 
         {/* Alerts */}
-        {error && (
-          <Alert severity="error" sx={{ mb: 3 }} onClose={() => setError(null)}>
-            {error}
-          </Alert>
-        )}
+        <Fade in={Boolean(error)}>
+          <Box sx={{ mb: 3 }}>
+            {error && (
+              <Alert severity="error" onClose={() => setError(null)}>
+                {error}
+              </Alert>
+            )}
+          </Box>
+        </Fade>
         
-        {success && (
-          <Alert severity="success" sx={{ mb: 3 }} onClose={() => setSuccess(null)}>
-            {success}
-          </Alert>
-        )}
+        <Fade in={Boolean(success)}>
+          <Box sx={{ mb: 3 }}>
+            {success && (
+              <Alert severity="success" onClose={() => setSuccess(null)}>
+                {success}
+              </Alert>
+            )}
+          </Box>
+        </Fade>
 
-        {/* Main Operation Card */}
-        <Card sx={{ mb: 3 }}>
-          <CardContent>
-            <Stack spacing={3}>
-              {/* Operation Type */}
-              <FormControl fullWidth>
-                <InputLabel>Operation</InputLabel>
-                <Select
-                  value={operation}
-                  label="Operation"
-                  onChange={(e) => setOperation(e.target.value as 'delete' | 'recover')}
-                >
-                  <MenuItem value="delete">
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <DeleteIcon sx={{ mr: 1 }} />
-                      Delete Emails
-                    </Box>
-                  </MenuItem>
-                  <MenuItem value="recover">
-                    <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                      <RestoreIcon sx={{ mr: 1 }} />
-                      Recover from Trash
-                    </Box>
-                  </MenuItem>
-                </Select>
-              </FormControl>
-
-              {/* Category Selection */}
-              <FormControl fullWidth>
-                <InputLabel>Email Category</InputLabel>
-                <Select
-                  value={selectedCategory}
-                  label="Email Category"
-                  onChange={(e) => setSelectedCategory(e.target.value)}
-                >
-                  {EMAIL_CATEGORIES.map((category) => (
-                    <MenuItem key={category.value} value={category.value}>
-                      <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                        <Typography sx={{ mr: 2 }}>{category.icon}</Typography>
-                        <Typography variant="body1">{category.label}</Typography>
+        {/* Main Layout */}
+        <Box sx={{ display: 'flex', gap: 4 }}>
+          {/* Left Column - Configuration */}
+          <Box sx={{ flex: 2 }}>
+            {/* Operation Type Selection */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Step 1: Choose Operation
+                </Typography>
+                <Box sx={{ display: 'flex', gap: 2 }}>
+                  <Box sx={{ flex: 1 }}>
+                    <Paper
+                      sx={{
+                        p: 3,
+                        border: 2,
+                        borderColor: operation === 'delete' ? 'error.main' : 'grey.300',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        height: '140px', // Fixed height
+                        display: 'flex',
+                        alignItems: 'center',
+                        '&:hover': {
+                          borderColor: 'error.main',
+                          bgcolor: 'error.50'
+                        }
+                      }}
+                      onClick={() => setOperation('delete')}
+                    >
+                      <Box sx={{ textAlign: 'center', width: '100%' }}>
+                        <DeleteIcon sx={{ fontSize: 40, color: 'error.main', mb: 1 }} />
+                        <Typography variant="h6" gutterBottom>
+                          Delete Emails
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Move emails to trash based on category and age
+                        </Typography>
                       </Box>
-                    </MenuItem>
+                    </Paper>
+                  </Box>
+                  <Box sx={{ flex: 1 }}>
+                    <Paper
+                      sx={{
+                        p: 3,
+                        border: 2,
+                        borderColor: operation === 'recover' ? 'primary.main' : 'grey.300',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s',
+                        height: '140px', // Fixed height
+                        display: 'flex',
+                        alignItems: 'center',
+                        '&:hover': {
+                          borderColor: 'primary.main',
+                          bgcolor: 'primary.50'
+                        }
+                      }}
+                      onClick={() => setOperation('recover')}
+                    >
+                      <Box sx={{ textAlign: 'center', width: '100%' }}>
+                        <RestoreIcon sx={{ fontSize: 40, color: 'primary.main', mb: 1 }} />
+                        <Typography variant="h6" gutterBottom>
+                          Recover Emails
+                        </Typography>
+                        <Typography variant="body2" color="text.secondary">
+                          Restore emails from trash back to inbox
+                        </Typography>
+                      </Box>
+                    </Paper>
+                  </Box>
+                </Box>
+              </CardContent>
+            </Card>
+
+            {/* Category Selection */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Step 2: Select Email Category
+                </Typography>
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                  {EMAIL_CATEGORIES.map((category) => (
+                    <Box key={category.value} sx={{ flex: '1 1 200px' }}>
+                      <Paper
+                        sx={{
+                          p: 2,
+                          border: 2,
+                          borderColor: selectedCategory === category.value ? `${category.color}.main` : 'grey.300',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s',
+                          height: '100%',
+                          '&:hover': {
+                            borderColor: `${category.color}.main`,
+                            bgcolor: `${category.color}.50`
+                          }
+                        }}
+                        onClick={() => setSelectedCategory(category.value)}
+                      >
+                        <Box sx={{ textAlign: 'center', mb: 1 }}>
+                          <Typography sx={{ fontSize: 32, mb: 1 }}>{category.icon}</Typography>
+                          <Typography variant="h6" gutterBottom>
+                            {category.label}
+                          </Typography>
+                          <Typography variant="body2" color="text.secondary">
+                            {category.description}
+                          </Typography>
+                        </Box>
+                      </Paper>
+                    </Box>
                   ))}
-                </Select>
-              </FormControl>
+                </Box>
+              </CardContent>
+            </Card>
 
-              {/* Time Period Selection - Only for Delete */}
-              {operation === 'delete' && (
-                <FormControl fullWidth>
-                  <InputLabel>Age of emails</InputLabel>
-                  <Select
-                    value={selectedTimePeriod}
-                    label="Age of emails"
-                    onChange={(e) => setSelectedTimePeriod(e.target.value)}
-                  >
-                    {TIME_PERIODS.map((period) => (
-                      <MenuItem key={period.value} value={period.value}>
-                        Older than {period.label}
-                      </MenuItem>
-                    ))}
-                  </Select>
-                </FormControl>
-              )}
-
-              {/* Gmail Limitation Warning for Recover */}
-              {operation === 'recover' && (
-                <Alert severity="info">
-                  <Typography variant="body2">
-                    <strong>Note:</strong> Gmail doesn't support age filtering for trash recovery. 
-                    This will recover the most recent emails from trash.
+            {/* Time Period Selection - Only for Delete */}
+            {operation === 'delete' && (
+              <Card sx={{ mb: 3 }}>
+                <CardContent>
+                  <Typography variant="h6" gutterBottom>
+                    Step 3: Choose Email Age
                   </Typography>
-                </Alert>
-              )}
+                  <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+                    {TIME_PERIODS.map((period) => (
+                      <Box key={period.value} sx={{ flex: '1 1 150px' }}>
+                        <Paper
+                          sx={{
+                            p: 2,
+                            border: 2,
+                            borderColor: selectedTimePeriod === period.value ? 'primary.main' : 'grey.300',
+                            cursor: 'pointer',
+                            transition: 'all 0.2s',
+                            height: '100%',
+                            '&:hover': {
+                              borderColor: 'primary.main',
+                              bgcolor: 'primary.50'
+                            }
+                          }}
+                          onClick={() => setSelectedTimePeriod(period.value)}
+                        >
+                          <Box sx={{ textAlign: 'center' }}>
+                            <ScheduleIcon sx={{ fontSize: 32, color: 'primary.main', mb: 1 }} />
+                            <Typography variant="h6" gutterBottom>
+                              {period.label}
+                            </Typography>
+                            <Typography variant="body2" color="text.secondary">
+                              {period.description}
+                            </Typography>
+                          </Box>
+                        </Paper>
+                      </Box>
+                    ))}
+                  </Box>
+                </CardContent>
+              </Card>
+            )}
 
-              {/* Email Count Selection */}
-              <Box>
+            {/* Gmail Limitation Warning for Recover */}
+            {operation === 'recover' && (
+              <Alert severity="info" sx={{ mb: 3 }}>
+                <Typography variant="body2">
+                  <strong>Note:</strong> Gmail doesn't support age filtering for trash recovery. 
+                  This will recover the most recent emails from trash.
+                </Typography>
+              </Alert>
+            )}
+
+            {/* Email Count Selection */}
+            <Card sx={{ mb: 3 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Step 4: Set Email Count Limit
+                </Typography>
                 <Typography variant="body1" sx={{ mb: 2 }}>
                   Number of emails to {operation}: <strong>{emailCount.toLocaleString()}</strong>
                 </Typography>
                 
-                <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+                <Stack direction="row" spacing={1} sx={{ mb: 2, flexWrap: 'wrap' }}>
                   {QUICK_AMOUNTS.map((amount) => (
-                    <Button
+                    <Chip
                       key={amount.value}
-                      variant={emailCount === amount.value ? "contained" : "outlined"}
-                      size="small"
+                      label={amount.label}
+                      color={emailCount === amount.value ? "primary" : "default"}
                       onClick={() => setEmailCount(amount.value)}
-                    >
-                      {amount.label}
-                    </Button>
+                      sx={{ cursor: 'pointer' }}
+                    />
                   ))}
                 </Stack>
                 
@@ -324,85 +453,93 @@ const BulkOperations: React.FC = () => {
                   onChange={(e) => setEmailCount(Math.min(10000, Math.max(1, parseInt(e.target.value) || 1)))}
                   inputProps={{ min: 1, max: 10000 }}
                   size="small"
-                  sx={{ width: 150 }}
+                  sx={{ width: 200 }}
                 />
-              </Box>
+              </CardContent>
+            </Card>
+          </Box>
 
-              {/* Query Preview */}
-              <Box sx={{ p: 2, bgcolor: 'grey.50', borderRadius: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  <strong>Query:</strong> {generateQuery() || 'Select category'}
+          {/* Right Column - Preview & Actions */}
+          <Box sx={{ flex: 1 }}>
+            {/* Query Preview */}
+            <Card sx={{ mb: 3, position: 'sticky', top: 20 }}>
+              <CardContent>
+                <Typography variant="h6" gutterBottom>
+                  Operation Summary
                 </Typography>
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  <strong>Action:</strong> {operation === 'delete' ? 'Delete' : 'Recover'} up to {emailCount.toLocaleString()} emails
-                </Typography>
-              </Box>
-
-              {/* Action Button */}
-              <Button
-                variant="contained"
-                size="large"
-                startIcon={operation === 'delete' ? <DeleteIcon /> : <RestoreIcon />}
-                onClick={() => setExecuteOpen(true)}
-                disabled={executing || !selectedCategory}
-                color={operation === 'delete' ? 'error' : 'primary'}
-                fullWidth
-              >
-                {operation === 'delete' ? 'Delete' : 'Recover'} {emailCount.toLocaleString()} Emails
-              </Button>
-            </Stack>
-          </CardContent>
-        </Card>
-
-        {/* Task Progress */}
-        {currentTask && (
-          <Card sx={{ mb: 3 }}>
-            <CardContent>
-              <Typography variant="h6" gutterBottom>
-                {operation === 'delete' ? 'Deleting' : 'Recovering'} Emails
-              </Typography>
-              
-              <Box sx={{ display: 'flex', alignItems: 'center', mb: 2 }}>
-                <Box sx={{ mr: 2 }}>
-                  {currentTask.status === 'PENDING' && <InfoIcon color="info" />}
-                  {currentTask.status === 'PROGRESS' && <InfoIcon color="primary" />}
-                  {currentTask.status === 'SUCCESS' && <SuccessIcon color="success" />}
-                  {currentTask.status === 'FAILURE' && <ErrorIcon color="error" />}
-                </Box>
                 
-                <Typography variant="body1">
-                  {currentTask.status === 'PENDING' && 'Starting...'}
-                  {currentTask.status === 'PROGRESS' && 'Processing...'}
-                  {currentTask.status === 'SUCCESS' && 'Completed!'}
-                  {currentTask.status === 'FAILURE' && 'Failed'}
-                  {currentTask.progress?.current && currentTask.progress?.total && (
-                    <> ({currentTask.progress.current}/{currentTask.progress.total})</>
+                <Box sx={{ mb: 2 }}>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Operation:</strong> {operation === 'delete' ? 'Delete' : 'Recover'}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Category:</strong> {getSelectedCategoryName() || 'Not selected'}
+                  </Typography>
+                  {operation === 'delete' && (
+                    <Typography variant="body2" color="text.secondary">
+                      <strong>Age:</strong> Older than {TIME_PERIODS.find(p => p.value === selectedTimePeriod)?.label}
+                    </Typography>
                   )}
-                </Typography>
-              </Box>
-              
-              {currentTask.progress?.current && currentTask.progress?.total && (
-                <LinearProgress
-                  variant="determinate"
-                  value={(currentTask.progress.current / currentTask.progress.total) * 100}
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Max emails:</strong> {emailCount.toLocaleString()}
+                  </Typography>
+                </Box>
+
+                <Divider sx={{ my: 2 }} />
+
+                <Box sx={{ 
+                  p: 2, 
+                  bgcolor: 'background.default', 
+                  borderRadius: 1, 
+                  mb: 2, 
+                  border: 1, 
+                  borderColor: 'divider' 
+                }}>
+                  <Typography variant="body2" color="text.secondary">
+                    <strong>Gmail Query:</strong>
+                  </Typography>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', color: 'text.primary' }}>
+                    {generateQuery() || 'Select category to see query'}
+                  </Typography>
+                </Box>
+
+                <Button
+                  variant="contained"
+                  size="large"
+                  startIcon={operation === 'delete' ? <DeleteIcon /> : <RestoreIcon />}
+                  onClick={() => setExecuteOpen(true)}
+                  disabled={executing || !selectedCategory}
+                  color={operation === 'delete' ? 'error' : 'primary'}
+                  fullWidth
                   sx={{ mb: 2 }}
-                />
-              )}
-              
-              {currentTask.progress?.message && (
-                <Typography variant="body2" color="text.secondary">
-                  {currentTask.progress.message}
-                </Typography>
-              )}
-            </CardContent>
-          </Card>
-        )}
+                >
+                  {operation === 'delete' ? 'Delete' : 'Recover'} {emailCount.toLocaleString()} Emails
+                </Button>
+
+                {/* Preview Button - Future feature */}
+                <Button
+                  variant="outlined"
+                  size="large"
+                  startIcon={<PreviewIcon />}
+                  disabled={!selectedCategory}
+                  fullWidth
+                  sx={{ mb: 1 }}
+                >
+                  Preview Emails (Coming Soon)
+                </Button>
+              </CardContent>
+            </Card>
+          </Box>
+        </Box>
 
         {/* Quick Actions */}
         <Card>
           <CardContent>
             <Typography variant="h6" gutterBottom>
               Quick Actions
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+              Common cleanup operations
             </Typography>
             
             <Stack spacing={2}>
@@ -416,8 +553,17 @@ const BulkOperations: React.FC = () => {
                   setEmailCount(1000);
                 }}
                 disabled={executing}
+                sx={{ textAlign: 'left', justifyContent: 'flex-start' }}
               >
-                🏷️ Delete 1,000 Promotions (3+ months old)
+                <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                  <Typography sx={{ mr: 2 }}>🏷️</Typography>
+                  <Box>
+                    <Typography variant="body1">Delete 1,000 Promotions</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      3+ months old marketing emails
+                    </Typography>
+                  </Box>
+                </Box>
               </Button>
               
               <Button
@@ -430,8 +576,17 @@ const BulkOperations: React.FC = () => {
                   setEmailCount(2000);
                 }}
                 disabled={executing}
+                sx={{ textAlign: 'left', justifyContent: 'flex-start' }}
               >
-                📄 Delete 2,000 Updates (6+ months old)
+                <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                  <Typography sx={{ mr: 2 }}>📄</Typography>
+                  <Box>
+                    <Typography variant="body1">Delete 2,000 Updates</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      6+ months old newsletters
+                    </Typography>
+                  </Box>
+                </Box>
               </Button>
               
               <Button
@@ -444,8 +599,17 @@ const BulkOperations: React.FC = () => {
                   setEmailCount(500);
                 }}
                 disabled={executing}
+                sx={{ textAlign: 'left', justifyContent: 'flex-start' }}
               >
-                🚫 Delete 500 Spam (1+ month old)
+                <Box sx={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                  <Typography sx={{ mr: 2 }}>🚫</Typography>
+                  <Box>
+                    <Typography variant="body1">Delete 500 Spam</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      1+ month old spam emails
+                    </Typography>
+                  </Box>
+                </Box>
               </Button>
             </Stack>
           </CardContent>
@@ -491,6 +655,7 @@ const BulkOperations: React.FC = () => {
               onClick={handleExecute} 
               color={operation === 'delete' ? 'error' : 'primary'}
               variant="contained"
+              startIcon={<ExecuteIcon />}
             >
               {operation === 'delete' ? 'Delete' : 'Recover'}
             </Button>
