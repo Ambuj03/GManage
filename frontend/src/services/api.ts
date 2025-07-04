@@ -146,7 +146,6 @@ class ApiService {
     const response = await this.api.get('/auth/google/status/');
     const data = response.data;
     
-    // Add computed field for compatibility
     return {
       ...data,
       authenticated: data.has_token && data.is_connected && !data.is_expired
