@@ -123,6 +123,7 @@ const LoginPage: React.FC = () => {
       
       await register(registrationData);
       setSuccess('Registration successful! You are now logged in.');
+      window.location.href = '/dashboard';
     } catch (err: any) {
       const errorData = err.response?.data;
       if (typeof errorData === 'object' && errorData !== null) {
