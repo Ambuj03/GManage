@@ -25,6 +25,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useGmail } from '../contexts/GmailContext';
 import { apiService } from '../services/api';
 import { useNavigate } from 'react-router-dom';
+import AppVerificationInfo from '../components/AppVerificationInfo';
 
 interface EmailStats {
   total_emails: number;
@@ -158,13 +159,16 @@ const Dashboard: React.FC = () => {
           mb: 4,
           gap: { xs: 2, sm: 0 }
         }}>
-          <Box>
-            <Typography variant="h4" component="h1" gutterBottom>
-              Gmail Bulk Manager
-            </Typography>
-            <Typography variant="subtitle1" color="text.secondary">
-              Welcome back, {user?.username}!
-            </Typography>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box>
+              <Typography variant="h4" component="h1" gutterBottom>
+                Gmail Bulk Manager
+                <AppVerificationInfo />
+              </Typography>
+              <Typography variant="subtitle1" color="text.secondary">
+                Welcome back, {user?.username}!
+              </Typography>
+            </Box>
           </Box>
           <Stack direction="row" spacing={2}>
             <IconButton 

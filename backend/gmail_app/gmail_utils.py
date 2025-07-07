@@ -9,6 +9,7 @@ from googleapiclient.errors import HttpError
 from google.auth.exceptions import RefreshError
 from .models import GoogleOAuthToken
 from .utils import get_credentials_for_user
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -21,35 +22,24 @@ class GmailServiceManager:
         self._last_error = None
     
     def get_service(self, force_refresh=False):
-        """Get Gmail service with automatic token refresh"""
-        if self._service and not force_refresh:
-            return self._service
+        """Get Gmail service with proper token refresh"""
+        # Always get fresh credentials to ensure tokens are current
+        credentials = get_credentials_for_user(self.user)
+        if not credentials:
+            return None
         
         try:
-            credentials = get_credentials_for_user(self.user)
-            if not credentials:
-                logger.error(f"No valid credentials for user {self.user.username}")
-                return None
+            # Always create fresh service with current credentials
+            service = build('gmail', 'v1', credentials=credentials)
             
-            # Build Gmail service
-            self._service = build('gmail', 'v1', credentials=credentials)
+            # Test with lightweight call
+            service.users().getProfile(userId='me').execute()
             
-            # Test connection with a lightweight call
-            self._test_connection()
+            self._service = service
+            return service
             
-            logger.info(f"Gmail service created successfully for user {self.user.username}")
-            return self._service
-            
-        except RefreshError as e:
-            logger.error(f"Token refresh failed for user {self.user.username}: {e}")
-            self._handle_token_error()
-            return None
-        except HttpError as e:
-            logger.error(f"Gmail API error for user {self.user.username}: {e}")
-            self._last_error = str(e)
-            return None
         except Exception as e:
-            logger.error(f"Unexpected error creating Gmail service for user {self.user.username}: {e}")
+            logger.error(f"Gmail service creation failed: {e}")
             return None
     
     def _test_connection(self):
@@ -193,9 +183,10 @@ def retry_gmail_operation(func, max_retries=3, delay=1):
     raise Exception(f"Operation failed after {max_retries} attempts")
 
 def get_credentials_for_user(user):
+    """Unified function for getting and refreshing Google credentials"""
     try:
         token = GoogleOAuthToken.objects.get(user=user)
-
+        
         credentials = Credentials(
             token=token.access_token,
             refresh_token=token.refresh_token,
@@ -204,45 +195,41 @@ def get_credentials_for_user(user):
             client_secret=token.client_secret,
             scopes=token.scopes
         )
-
-        # Enhanced token refresh with better error handling
-        if credentials.expired and credentials.refresh_token:
+        
+        # Proactive refresh - refresh if expiring within 5 minutes
+        if credentials.expiry:
+            time_until_expiry = credentials.expiry - datetime.utcnow()
+            should_refresh = time_until_expiry.total_seconds() < 300  # 5 minutes
+        else:
+            should_refresh = credentials.expired
+        
+        if should_refresh and credentials.refresh_token:
             try:
-                logger.info(f"Refreshing expired token for user {user.username}")
+                logger.info(f"Refreshing token for user {user.username}")
                 credentials.refresh(Request())
                 
-                # Update stored token
+                # Update database
                 token.access_token = credentials.token
-                if credentials.expiry:
-                    token.expiry = credentials.expiry
+                token.expiry = credentials.expiry
                 token.save()
                 
                 logger.info(f"Token refreshed successfully for user {user.username}")
                 
             except RefreshError as e:
-                # Only handle actual auth failures (invalid refresh token)
-                if 'invalid_grant' in str(e) or 'refresh_token' in str(e).lower():
-                    logger.error(f"Refresh token invalid for user {user.username}: {e}")
-                    # Delete invalid tokens
+                # Only delete tokens if refresh token is actually invalid
+                if 'invalid_grant' in str(e).lower():
+                    logger.error(f"Refresh token invalid, deleting for user {user.username}")
                     token.delete()
                     return None
                 else:
-                    # Temporary network/server error - retry later
-                    logger.warning(f"Temporary refresh error for user {user.username}: {e}")
-                    # Return current credentials - may still work for a short time
-                    return credentials
-                    
-            except Exception as e:
-                # Network or other temporary errors
-                logger.warning(f"Token refresh failed (temporary) for user {user.username}: {e}")
-                # Return current credentials - may still work
-                return credentials
+                    # For other errors, log but don't delete tokens
+                    logger.warning(f"Token refresh failed temporarily: {e}")
+                    # Continue with existing credentials
         
         return credentials
-    
+        
     except GoogleOAuthToken.DoesNotExist:
-        logger.warning(f"No OAuth token found for user {user.username}")
         return None
     except Exception as e:
-        logger.error(f"Error getting credentials for user {user.username}: {e}")
+        logger.error(f"Error getting credentials: {e}")
         return None
