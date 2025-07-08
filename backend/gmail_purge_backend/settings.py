@@ -24,12 +24,9 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 
-ALLOWED_HOSTS = [
-    '127.0.0.1', 
-    'localhost',
-    'your-ec2-domain.amazonaws.com',  # Add your actual domain
-    'your-custom-domain.com'  # If you have one
-]
+import os
+
+ALLOWED_HOSTS = os.getenv("DJANGO_ALLOWED_HOSTS", "127.0.0.1").split(",")
 
 
 # Application definition
@@ -127,10 +124,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 
 STATIC_URL = 'static/'
-
-
 STATIC_ROOT = os.path.join(BASE_DIR, 'staticfiles')  # Where collected static files go
-STATICFILES_STORAGE = 'whitenoise.storage.CompressedManifestStaticFilesStorage'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field
@@ -210,13 +204,7 @@ CELERY_RESULT_EXPIRES = 3600
 
 #For react testinggg
 # Add CORS settings
-CORS_ALLOWED_ORIGINS = [
-    "https://your-frontend-domain.com",  # Replace with actual domain
-    "http://localhost:3000",  # Keep for dev
-]
-
-# For development only - you can use this instead of CORS_ALLOWED_ORIGINS
-# CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOWED_ORIGINS = os.getenv("DJANGO_CORS_ALLOWED_ORIGINS", "").split(",")
 
 CORS_ALLOW_CREDENTIALS = True
 
@@ -233,9 +221,15 @@ CORS_ALLOW_HEADERS = [
     'x-requested-with',
 ]
 
+CORS_ALLOWED_ORIGINS = [
+    url.strip() for url in os.getenv("DJANGO_CORS_ALLOWED_ORIGINS", "").split(",") if url.strip()
+]
 
-FRONTEND_URL = 'http://localhost:3000'
+# Also add fallback for empty env var:
+if not CORS_ALLOWED_ORIGINS:
+    CORS_ALLOWED_ORIGINS = ['http://localhost:3000']
 
+FRONTEND_URL = os.getenv('FRONTEND_URL', 'http://localhost:3000')
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = True
